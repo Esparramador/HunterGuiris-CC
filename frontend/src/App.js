@@ -1,5 +1,4 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import axios from "axios";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
@@ -15,626 +14,464 @@ import {
   CheckCircle,
   Loader2,
   Target,
-  Globe,
-  Sparkles,
   X,
   Building,
   Navigation,
-  Map
+  WifiOff,
+  Download,
+  Sparkles,
+  ChevronUp
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Toaster, toast } from "sonner";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Custom marker icon
+// Custom marker
 const customIcon = new L.DivIcon({
   className: 'custom-marker',
-  html: `
-    <div style="
-      width: 24px;
-      height: 24px;
-      background: linear-gradient(135deg, #00d4ff, #6366f1);
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg);
-      border: 3px solid #0a0a0f;
-      box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
-      position: relative;
-    ">
-      <div style="
-        width: 8px;
-        height: 8px;
-        background: #0a0a0f;
-        border-radius: 50%;
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-      "></div>
-    </div>
-  `,
-  iconSize: [24, 24],
-  iconAnchor: [12, 24],
-  popupAnchor: [0, -24],
+  html: `<div style="
+    width: 20px; height: 20px;
+    background: linear-gradient(135deg, #00d4ff, #8b5cf6);
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid #08080c;
+    box-shadow: 0 0 15px rgba(0,212,255,0.6);
+  "><div style="
+    width: 6px; height: 6px;
+    background: #08080c;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+  "></div></div>`,
+  iconSize: [20, 20],
+  iconAnchor: [10, 20],
 });
 
-// Map updater
 const MapUpdater = ({ center, zoom }) => {
   const map = useMap();
   useEffect(() => {
-    if (center) {
-      map.flyTo(center, zoom, { duration: 1.5 });
-    }
+    if (center) map.flyTo(center, zoom, { duration: 1 });
   }, [center, zoom, map]);
   return null;
 };
 
-// Main Dashboard
-const GeoHunterDashboard = () => {
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  const [searchZone, setSearchZone] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [analysisStep, setAnalysisStep] = useState(0);
+const HunterApp = () => {
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [zone, setZone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [step, setStep] = useState(0);
   const [history, setHistory] = useState([]);
-  const [mapCenter, setMapCenter] = useState([20, 0]);
-  const [mapZoom, setMapZoom] = useState(2);
+  const [center, setCenter] = useState([20, 0]);
+  const [zoom, setZoom] = useState(2);
   const [showResults, setShowResults] = useState(false);
-  const fileInputRef = useRef(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showInstall, setShowInstall] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const fileRef = useRef(null);
 
   useEffect(() => {
     fetchHistory();
+    
+    // Online/Offline detection
+    const handleOnline = () => { setIsOnline(true); toast.success("Conexión restaurada"); };
+    const handleOffline = () => { setIsOnline(false); };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // PWA Install prompt
+    const handleInstall = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstall(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleInstall);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('beforeinstallprompt', handleInstall);
+    };
   }, []);
 
   const fetchHistory = async () => {
     try {
-      const response = await axios.get(`${API}/history`);
-      setHistory(response.data);
-    } catch (error) {
-      console.error("Failed to fetch history:", error);
-    }
+      const res = await axios.get(`${API}/history`);
+      setHistory(res.data);
+    } catch (e) { console.error(e); }
   };
 
-  const handleImageSelect = useCallback((event) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (!file.type.match(/^image\/(jpeg|png|webp)$/)) {
-        toast.error("Please upload a JPEG, PNG, or WEBP image");
-        return;
-      }
-      setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => setImagePreview(e.target.result);
-      reader.readAsDataURL(file);
-      setAnalysisResult(null);
-      setShowResults(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback((event) => {
-    event.preventDefault();
-    const file = event.dataTransfer.files?.[0];
+  const handleImage = useCallback((e) => {
+    const file = e.target.files?.[0];
     if (file && file.type.match(/^image\/(jpeg|png|webp)$/)) {
-      setSelectedImage(file);
+      setImage(file);
       const reader = new FileReader();
-      reader.onload = (e) => setImagePreview(e.target.result);
+      reader.onload = (ev) => setPreview(ev.target.result);
       reader.readAsDataURL(file);
-      setAnalysisResult(null);
+      setResult(null);
       setShowResults(false);
     } else {
-      toast.error("Please upload a JPEG, PNG, or WEBP image");
+      toast.error("Solo JPEG, PNG o WEBP");
     }
   }, []);
 
-  const analyzeImage = async () => {
-    if (!selectedImage) {
-      toast.error("Please select an image first");
+  const analyze = async () => {
+    if (!image) return toast.error("Sube una imagen primero");
+    
+    if (!isOnline) {
+      toast.warning("Sin conexión. Se procesará cuando vuelvas a tener internet.");
       return;
     }
 
-    setIsAnalyzing(true);
-    setAnalysisStep(1);
+    setLoading(true);
+    setStep(1);
     setShowResults(true);
 
     const reader = new FileReader();
-    reader.readAsDataURL(selectedImage);
-    
+    reader.readAsDataURL(image);
     reader.onload = async () => {
       const base64 = reader.result.split(",")[1];
       
-      setTimeout(() => setAnalysisStep(2), 800);
-      setTimeout(() => setAnalysisStep(3), 2000);
+      setTimeout(() => setStep(2), 600);
+      setTimeout(() => setStep(3), 1500);
       
       try {
-        const response = await axios.post(`${API}/analyze`, {
+        const res = await axios.post(`${API}/analyze`, {
           image_base64: base64,
-          search_zone: searchZone || null,
+          search_zone: zone || null,
         });
         
-        setAnalysisStep(4);
-        setTimeout(() => setAnalysisStep(5), 500);
-        setAnalysisResult(response.data);
+        setStep(4);
+        setTimeout(() => setStep(5), 400);
+        setResult(res.data);
         
-        if (response.data.consensus_coordinates) {
-          setMapCenter([
-            response.data.consensus_coordinates.lat,
-            response.data.consensus_coordinates.lng,
-          ]);
-          setMapZoom(14);
+        if (res.data.consensus_coordinates) {
+          setCenter([res.data.consensus_coordinates.lat, res.data.consensus_coordinates.lng]);
+          setZoom(15);
         }
         
         fetchHistory();
-        toast.success("Location identified successfully!");
-        
-      } catch (error) {
-        console.error("Analysis error:", error);
-        toast.error("Analysis failed. Please try again.");
-        setAnalysisStep(0);
+        toast.success("¡Ubicación encontrada!");
+      } catch (e) {
+        console.error(e);
+        toast.error("Error en análisis");
+        setStep(0);
       } finally {
-        setIsAnalyzing(false);
+        setLoading(false);
       }
     };
   };
 
-  const loadHistoryItem = (item) => {
-    setAnalysisResult(item);
+  const loadHistory = (item) => {
+    setResult(item);
     setShowResults(true);
     if (item.consensus_coordinates) {
-      setMapCenter([item.consensus_coordinates.lat, item.consensus_coordinates.lng]);
-      setMapZoom(14);
+      setCenter([item.consensus_coordinates.lat, item.consensus_coordinates.lng]);
+      setZoom(15);
     }
   };
 
-  const deleteHistoryItem = async (id, event) => {
-    event.stopPropagation();
+  const deleteHistory = async (id, e) => {
+    e.stopPropagation();
     try {
       await axios.delete(`${API}/history/${id}`);
       fetchHistory();
-      toast.success("Deleted");
-    } catch (error) {
-      toast.error("Failed to delete");
+      toast.success("Eliminado");
+    } catch (e) {
+      toast.error("Error");
     }
   };
 
-  const clearImage = () => {
-    setSelectedImage(null);
-    setImagePreview(null);
-    setAnalysisResult(null);
-    setShowResults(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  const installApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') toast.success("¡App instalada!");
+      setDeferredPrompt(null);
+      setShowInstall(false);
+    }
   };
 
-  const getConfidenceClass = (c) => c >= 70 ? "confidence-high" : c >= 40 ? "confidence-medium" : "confidence-low";
+  const getConfClass = (c) => c >= 70 ? "high" : c >= 40 ? "medium" : "low";
 
   return (
-    <div className="geohunter-app">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <div className="logo-container">
-            <div className="logo-icon">
-              <Target className="w-6 h-6 text-white" />
-            </div>
-            <div className="logo-text">
-              <h1>GeoHunter AI</h1>
-              <p>Mega Brain Intelligence</p>
-            </div>
-          </div>
+    <div className="app-layout">
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="offline-banner">
+          <WifiOff className="w-4 h-4 inline mr-2" />
+          Sin conexión - Las búsquedas se guardarán para después
         </div>
+      )}
 
-        <div className="sidebar-content">
-          {/* Upload Section */}
-          <div className="sidebar-section">
-            <div className="section-label">
-              <Upload className="w-4 h-4" />
-              <span>Upload Image</span>
-            </div>
-            
-            <div
-              className={`upload-zone ${imagePreview ? 'has-image' : ''}`}
-              onClick={() => fileInputRef.current?.click()}
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              data-testid="upload-area"
-            >
-              {imagePreview ? (
-                <>
-                  <img src={imagePreview} alt="Selected" />
-                  <button
-                    onClick={(e) => { e.stopPropagation(); clearImage(); }}
-                    className="clear-image-btn"
-                    data-testid="clear-image-btn"
-                  >
-                    <X className="w-4 h-4 text-white" />
-                  </button>
-                  {isAnalyzing && (
-                    <div className="absolute inset-0 bg-black/80 flex items-center justify-center rounded-lg">
-                      <div className="scan-line" />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="upload-placeholder">
-                  <Globe className="w-10 h-10 text-zinc-600 mx-auto" />
-                  <p>Drop image or click to upload</p>
-                  <span>JPEG, PNG, WEBP supported</span>
-                </div>
-              )}
-            </div>
-            
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleImageSelect}
-              className="hidden"
-              data-testid="file-input"
-            />
+      {/* Header */}
+      <header className="app-header">
+        <div className="logo">
+          <div className="logo-icon">
+            <Target className="w-5 h-5 text-white" />
           </div>
-
-          {/* Search Zone */}
-          <div className="sidebar-section">
-            <div className="section-label">
-              <Map className="w-4 h-4" />
-              <span>Search Zone (Optional)</span>
-            </div>
-            
-            <input
-              type="text"
-              placeholder="Country, city, or region..."
-              value={searchZone}
-              onChange={(e) => setSearchZone(e.target.value)}
-              className="input-styled w-full h-11 px-4 rounded-lg"
-              data-testid="search-zone-input"
-            />
-            
-            <Button
-              onClick={analyzeImage}
-              disabled={!selectedImage || isAnalyzing}
-              className="btn-primary w-full h-12 rounded-lg mt-4"
-              data-testid="analyze-btn"
-            >
-              {isAnalyzing ? (
-                <>
-                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Brain className="w-5 h-5 mr-2" />
-                  Hunt Location
-                </>
-              )}
-            </Button>
-          </div>
-
-          {/* History */}
-          <div className="sidebar-section">
-            <div className="section-label">
-              <History className="w-4 h-4" />
-              <span>Recent Hunts</span>
-            </div>
-            
-            <ScrollArea className="h-[200px]">
-              <div className="history-list">
-                {history.length === 0 ? (
-                  <p className="text-sm text-zinc-600 py-4 text-center">No history yet</p>
-                ) : (
-                  history.map((item) => (
-                    <div
-                      key={item.id}
-                      className="history-item"
-                      onClick={() => loadHistoryItem(item)}
-                      data-testid={`history-item-${item.id}`}
-                    >
-                      <div className="history-icon">
-                        <MapPin className="w-5 h-5 text-cyan-400" />
-                      </div>
-                      <div className="history-info">
-                        <h4>{item.consensus_location || "Unknown"}</h4>
-                        <p>{item.consensus_confidence}% confidence</p>
-                      </div>
-                      <button
-                        onClick={(e) => deleteHistoryItem(item.id, e)}
-                        className="history-delete"
-                        data-testid={`delete-history-${item.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
-          </div>
+          <h1>Hunter Guiris CC</h1>
         </div>
-
-        <div className="sidebar-footer">
-          <div className="status-row">
-            <div className="status-group">
-              <div className="status-indicator status-online" />
-              <span>Systems Online</span>
-            </div>
-            <div className="ai-status">
-              <span className="gpt">GPT-5.2</span>
-              <span className="gemini">Gemini</span>
-            </div>
-          </div>
+        <div className="status-pill">
+          <div className="status-dot" />
+          <span>Online</span>
         </div>
-      </aside>
+      </header>
 
       {/* Map */}
-      <main className="map-stage">
+      <div className="map-container">
         <MapContainer
-          center={mapCenter}
-          zoom={mapZoom}
-          style={{ height: "100%", width: "100%", background: "#0a0a0f" }}
+          center={center}
+          zoom={zoom}
+          style={{ height: "100%", width: "100%" }}
           zoomControl={true}
-          data-testid="leaflet-map"
         >
           <TileLayer
-            attribution='&copy; CARTO'
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution="CARTO"
           />
-          <MapUpdater center={mapCenter} zoom={mapZoom} />
-          {analysisResult?.consensus_coordinates && (
+          <MapUpdater center={center} zoom={zoom} />
+          {result?.consensus_coordinates && (
             <Marker 
-              position={[
-                analysisResult.consensus_coordinates.lat,
-                analysisResult.consensus_coordinates.lng
-              ]}
+              position={[result.consensus_coordinates.lat, result.consensus_coordinates.lng]}
               icon={customIcon}
             >
               <Popup>
-                <div className="p-2">
-                  <p className="font-semibold text-gray-900">{analysisResult.consensus_location}</p>
-                  <p className="text-sm text-gray-600">{analysisResult.consensus_confidence}% confidence</p>
+                <div className="p-1 text-gray-900">
+                  <p className="font-semibold">{result.consensus_location}</p>
+                  <p className="text-sm text-gray-600">{result.consensus_confidence}%</p>
                 </div>
               </Popup>
             </Marker>
           )}
         </MapContainer>
+      </div>
 
-        {/* Results Panel */}
-        {showResults && (
-          <div className="results-panel glass-elevated fade-in" data-testid="results-panel">
-            <div className="results-header">
-              <h3 className="text-lg font-semibold" style={{ fontFamily: 'Rajdhani, sans-serif' }}>
-                {isAnalyzing ? 'Analyzing...' : 'Analysis Results'}
-              </h3>
-              <button onClick={() => setShowResults(false)} className="close-btn" data-testid="close-results-btn">
+      {/* Bottom Panel */}
+      <div className="bottom-panel">
+        {/* Upload */}
+        <div 
+          className={`upload-zone ${preview ? 'has-image' : ''}`}
+          onClick={() => fileRef.current?.click()}
+          data-testid="upload-area"
+        >
+          {preview ? (
+            <div className="relative">
+              <img src={preview} alt="Preview" />
+              {loading && (
+                <div className="scan-overlay">
+                  <div className="scan-line" />
+                </div>
+              )}
+              <button 
+                onClick={(e) => { e.stopPropagation(); setImage(null); setPreview(null); }}
+                className="absolute top-1 right-1 p-1 bg-black/70 rounded-full"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Progress */}
-            {isAnalyzing && (
-              <div className="progress-steps">
-                <ProgressStep step={1} current={analysisStep} label="Processing Image" />
-                <ProgressStep step={2} current={analysisStep} label="GPT-5.2 Analysis" badge="gpt" />
-                <ProgressStep step={3} current={analysisStep} label="Gemini Analysis" badge="gemini" />
-                <ProgressStep step={4} current={analysisStep} label="Google Maps Enrichment" />
-                <ProgressStep step={5} current={analysisStep} label="Calculating Consensus" />
-              </div>
-            )}
-
-            {/* Results */}
-            {analysisResult && !isAnalyzing && (
-              <ScrollArea className="results-content">
-                {/* Consensus */}
-                <div className="p-5 border-b border-white/5">
-                  <div className="consensus-card">
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Consensus Location</p>
-                        <h2 className="text-2xl font-bold text-glow-cyan" data-testid="consensus-location">
-                          {analysisResult.consensus_location || "Unknown"}
-                        </h2>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Confidence</p>
-                        <p className="text-3xl font-light" data-testid="consensus-confidence">
-                          {analysisResult.consensus_confidence}%
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="confidence-bar-bg mb-4">
-                      <div 
-                        className={`confidence-bar-fill ${getConfidenceClass(analysisResult.consensus_confidence)}`}
-                        style={{ width: `${analysisResult.consensus_confidence}%` }}
-                      />
-                    </div>
-                    
-                    {analysisResult.consensus_coordinates && (
-                      <div className="coords-box" data-testid="coordinates">
-                        <Navigation className="w-4 h-4" />
-                        <span>{analysisResult.consensus_coordinates.lat.toFixed(6)}</span>
-                        <span className="text-zinc-500">/</span>
-                        <span>{analysisResult.consensus_coordinates.lng.toFixed(6)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Place Details from Google Maps */}
-                {analysisResult.place_details && (
-                  <div className="p-5 border-b border-white/5">
-                    <div className="section-label mb-3">
-                      <Map className="w-4 h-4" />
-                      <span>Google Maps Data</span>
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      {analysisResult.place_details.formatted_address && (
-                        <p className="text-zinc-300">{analysisResult.place_details.formatted_address}</p>
-                      )}
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {analysisResult.place_details.country && (
-                          <span className="landmark-tag">{analysisResult.place_details.country}</span>
-                        )}
-                        {analysisResult.place_details.administrative_area && (
-                          <span className="landmark-tag">{analysisResult.place_details.administrative_area}</span>
-                        )}
-                        {analysisResult.place_details.locality && (
-                          <span className="landmark-tag">{analysisResult.place_details.locality}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Nearby Places */}
-                {analysisResult.nearby_places && analysisResult.nearby_places.length > 0 && (
-                  <div className="p-5 border-b border-white/5">
-                    <div className="section-label mb-3">
-                      <Building className="w-4 h-4" />
-                      <span>Nearby Places</span>
-                    </div>
-                    <div className="space-y-2">
-                      {analysisResult.nearby_places.map((place, idx) => (
-                        <div key={idx} className="nearby-item">
-                          <div className="nearby-item-icon">
-                            <MapPin className="w-4 h-4 text-cyan-400" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm text-white">{place.name}</p>
-                            {place.vicinity && (
-                              <p className="text-xs text-zinc-500">{place.vicinity}</p>
-                            )}
-                          </div>
-                          {place.rating && (
-                            <span className="text-xs text-amber-400">{place.rating}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* GPT Analysis */}
-                {analysisResult.gpt_analysis && (
-                  <div className="p-5 border-b border-white/5">
-                    <AICard analysis={analysisResult.gpt_analysis} type="gpt" />
-                  </div>
-                )}
-
-                {/* Gemini Analysis */}
-                {analysisResult.gemini_analysis && (
-                  <div className="p-5">
-                    <AICard analysis={analysisResult.gemini_analysis} type="gemini" />
-                  </div>
-                )}
-              </ScrollArea>
-            )}
-          </div>
-        )}
-
-        {/* Welcome */}
-        {!showResults && !imagePreview && (
-          <div className="welcome-overlay">
-            <div className="welcome-content fade-in">
-              <div className="welcome-icon">
-                <Globe className="w-12 h-12 text-cyan-400" />
-              </div>
-              <h2 className="welcome-title">
-                <span className="cyan">Geo</span><span className="purple">Hunter</span>
-              </h2>
-              <p className="welcome-subtitle">Upload an image to begin location analysis</p>
+          ) : (
+            <div className="upload-text">
+              <Upload className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>Toca para subir imagen</p>
             </div>
+          )}
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" onChange={handleImage} className="hidden" />
+
+        {/* Search Zone */}
+        <input
+          type="text"
+          placeholder="Zona de búsqueda (opcional)..."
+          value={zone}
+          onChange={(e) => setZone(e.target.value)}
+          className="search-input"
+          data-testid="search-zone-input"
+        />
+
+        {/* Analyze Button */}
+        <button 
+          onClick={analyze} 
+          disabled={!image || loading}
+          className="btn-analyze"
+          data-testid="analyze-btn"
+        >
+          {loading ? (
+            <><Loader2 className="w-5 h-5 animate-spin" /> Rastreando...</>
+          ) : (
+            <><Brain className="w-5 h-5" /> RASTREAR UBICACIÓN</>
+          )}
+        </button>
+
+        {/* History */}
+        {history.length > 0 && !showResults && (
+          <div className="history-section">
+            <div className="section-title">Historial reciente</div>
+            {history.slice(0, 3).map((item) => (
+              <div key={item.id} className="history-item" onClick={() => loadHistory(item)}>
+                <div className="history-icon">
+                  <MapPin className="w-4 h-4 text-cyan-400" />
+                </div>
+                <div className="history-info">
+                  <div className="history-name">{item.consensus_location || "Desconocido"}</div>
+                  <div className="history-conf">{item.consensus_confidence}% confianza</div>
+                </div>
+                <button onClick={(e) => deleteHistory(item.id, e)} className="p-2 text-gray-500">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
-      </main>
+      </div>
 
-      <Toaster 
-        position="bottom-right" 
-        theme="dark"
-        toastOptions={{
-          style: {
-            background: '#1a1a24',
-            border: '1px solid rgba(255,255,255,0.1)',
-            color: '#f8fafc',
-            borderRadius: '12px',
-          },
-        }}
-      />
+      {/* Results Panel */}
+      <div className={`results-panel ${showResults ? 'open' : ''}`}>
+        <div className="results-handle" onClick={() => setShowResults(false)} />
+        
+        <div className="results-header">
+          <h3 className="font-semibold">{loading ? 'Analizando...' : 'Resultados'}</h3>
+          <button onClick={() => setShowResults(false)} className="p-2 text-gray-500">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {loading && (
+          <div className="progress-list">
+            <Step n={1} current={step} label="Procesando imagen" />
+            <Step n={2} current={step} label="Análisis GPT-5.2" badge="gpt" />
+            <Step n={3} current={step} label="Análisis Gemini" badge="gemini" />
+            <Step n={4} current={step} label="Google Maps" />
+            <Step n={5} current={step} label="Calculando consenso" />
+          </div>
+        )}
+
+        {result && !loading && (
+          <div className="results-content">
+            {/* Consensus */}
+            <div className="consensus-card">
+              <div className="consensus-location" data-testid="consensus-location">
+                {result.consensus_location || "Ubicación desconocida"}
+              </div>
+              {result.place_details?.formatted_address && (
+                <div className="consensus-address">{result.place_details.formatted_address}</div>
+              )}
+              <div className="confidence-row">
+                <span className="confidence-label">Confianza</span>
+                <span className="confidence-value" data-testid="consensus-confidence">
+                  {result.consensus_confidence}%
+                </span>
+              </div>
+              <div className="confidence-bar">
+                <div 
+                  className={`confidence-fill ${getConfClass(result.consensus_confidence)}`}
+                  style={{ width: `${result.consensus_confidence}%` }}
+                />
+              </div>
+              {result.consensus_coordinates && (
+                <div className="coords-box" data-testid="coordinates">
+                  <Navigation className="w-4 h-4" />
+                  {result.consensus_coordinates.lat.toFixed(5)}, {result.consensus_coordinates.lng.toFixed(5)}
+                </div>
+              )}
+            </div>
+
+            {/* Nearby Places */}
+            {result.nearby_places?.length > 0 && (
+              <div className="nearby-section">
+                <div className="section-title">Lugares cercanos</div>
+                <div className="nearby-list">
+                  {result.nearby_places.slice(0, 3).map((p, i) => (
+                    <div key={i} className="nearby-item">
+                      <div className="nearby-icon">
+                        <Building className="w-4 h-4 text-cyan-400" />
+                      </div>
+                      <div className="nearby-info">
+                        <div className="nearby-name">{p.name}</div>
+                        {p.vicinity && <div className="nearby-address">{p.vicinity}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI Analysis */}
+            {result.gpt_analysis && (
+              <div className="ai-card gpt" data-testid="gpt-analysis-card">
+                <div className="ai-header">
+                  <span className="ai-badge gpt"><Sparkles className="w-3 h-3" /> GPT-5.2</span>
+                  <span className="ai-confidence gpt">{result.gpt_analysis.confidence}%</span>
+                </div>
+                <div className="ai-location">{result.gpt_analysis.location_guess}</div>
+                <div className="ai-reasoning">{result.gpt_analysis.reasoning}</div>
+              </div>
+            )}
+
+            {result.gemini_analysis && (
+              <div className="ai-card gemini" data-testid="gemini-analysis-card">
+                <div className="ai-header">
+                  <span className="ai-badge gemini"><Sparkles className="w-3 h-3" /> Gemini</span>
+                  <span className="ai-confidence gemini">{result.gemini_analysis.confidence}%</span>
+                </div>
+                <div className="ai-location">{result.gemini_analysis.location_guess}</div>
+                <div className="ai-reasoning">{result.gemini_analysis.reasoning}</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Install Prompt */}
+      {showInstall && (
+        <div className="install-prompt">
+          <div className="install-content">
+            <div className="logo-icon">
+              <Target className="w-5 h-5 text-white" />
+            </div>
+            <div className="install-text">
+              <h4>Instalar Hunter Guiris CC</h4>
+              <p>Añade la app a tu móvil</p>
+            </div>
+            <button onClick={installApp} className="install-btn">
+              <Download className="w-4 h-4 inline mr-1" /> Instalar
+            </button>
+            <button onClick={() => setShowInstall(false)} className="install-close">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Toaster position="top-center" theme="dark" />
     </div>
   );
 };
 
 // Progress Step
-const ProgressStep = ({ step, current, label, badge }) => {
-  const isActive = current === step;
-  const isCompleted = current > step;
-
+const Step = ({ n, current, label, badge }) => {
+  const done = current > n;
+  const active = current === n;
   return (
     <div className="progress-step">
-      <div className={`step-icon ${isCompleted ? 'completed' : isActive ? 'active' : 'pending'}`}>
-        {isCompleted ? <CheckCircle className="w-4 h-4" /> : isActive ? <Loader2 className="w-4 h-4 animate-spin" /> : step}
+      <div className={`step-icon ${done ? 'done' : active ? 'active' : 'pending'}`}>
+        {done ? <CheckCircle className="w-4 h-4" /> : active ? <Loader2 className="w-4 h-4 animate-spin" /> : n}
       </div>
-      <span className={`step-label ${isCompleted ? 'completed' : isActive ? 'active' : ''}`}>{label}</span>
-      {badge && <span className={`ai-badge ai-badge-${badge} ml-auto`}>{badge === 'gpt' ? 'GPT-5.2' : 'Gemini'}</span>}
+      <span className={`step-label ${done ? 'done' : active ? 'active' : ''}`}>{label}</span>
+      {badge && <span className={`ai-badge ${badge} ml-auto`}>{badge === 'gpt' ? 'GPT' : 'Gemini'}</span>}
     </div>
   );
 };
 
-// AI Card
-const AICard = ({ analysis, type }) => {
-  const isGPT = type === "gpt";
-  
-  return (
-    <div className={`analysis-card ${type}`} data-testid={`${type}-analysis-card`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className={`ai-badge ai-badge-${type}`}>
-            <Sparkles className="w-3 h-3" />
-            {analysis.provider} {analysis.model}
-          </span>
-        </div>
-        <span className={`text-lg font-semibold ${isGPT ? 'text-indigo-400' : 'text-cyan-400'}`}>
-          {analysis.confidence}%
-        </span>
-      </div>
-      
-      <div className="space-y-3">
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Location</p>
-          <p className="text-white" data-testid={`${type}-location`}>{analysis.location_guess}</p>
-        </div>
-        
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Reasoning</p>
-          <p className="text-sm text-zinc-400 leading-relaxed">{analysis.reasoning}</p>
-        </div>
-        
-        {analysis.landmarks?.length > 0 && (
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Landmarks</p>
-            <div className="flex flex-wrap gap-2">
-              {analysis.landmarks.map((l, i) => (
-                <span key={i} className="landmark-tag">
-                  <MapPin className="w-3 h-3" />
-                  {l}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-function App() {
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<GeoHunterDashboard />} />
+        <Route path="/" element={<HunterApp />} />
       </Routes>
     </BrowserRouter>
   );
 }
-
-export default App;

@@ -3,44 +3,44 @@
     "total_tests": 6,
     "passed_tests": 6,
     "success_rate": 100.0,
-    "timestamp": "2026-03-11T23:30:00.901334"
+    "timestamp": "2026-03-11T23:45:01.750897"
   },
   "detailed_results": [
     {
       "test": "Root Endpoint",
       "success": true,
       "details": "Status: 200, Message: GeoHunter AI - Mega Brain Active",
-      "timestamp": "2026-03-11T23:29:59.744269"
+      "timestamp": "2026-03-11T23:45:00.498736"
     },
     {
       "test": "Status Endpoints",
       "success": true,
       "details": "POST: 200, GET: 200",
-      "timestamp": "2026-03-11T23:30:00.033683"
+      "timestamp": "2026-03-11T23:45:00.759928"
     },
     {
       "test": "Maps Key Endpoint",
       "success": "AIzaSyDTbxul0_oLezypC_DZiK1K0-hg7kLOUl8",
       "details": "Status: 200, Has key: AIzaSyDTbxul0_oLezypC_DZiK1K0-hg7kLOUl8",
-      "timestamp": "2026-03-11T23:30:00.145404"
+      "timestamp": "2026-03-11T23:45:00.919372"
     },
     {
       "test": "Geocode Endpoint",
       "success": true,
       "details": "Status: 200, Has coordinates: True, Lat: 48.8575475, Lng: 2.3513765",
-      "timestamp": "2026-03-11T23:30:00.430440"
+      "timestamp": "2026-03-11T23:45:01.241665"
     },
     {
       "test": "Image Analysis (AI Mega Brain)",
       "success": true,
       "details": "Status: 200, GPT Analysis: True, Gemini Analysis: True, Consensus: True, GPT Confidence: 0%, Gemini Confidence: 0%, Consensus: 0%, Location: Unknown Location",
-      "timestamp": "2026-03-11T23:30:00.599719"
+      "timestamp": "2026-03-11T23:45:01.427024"
     },
     {
       "test": "History Endpoints",
       "success": true,
       "details": "GET Status: 200, Is list: True, Count: 2, DELETE Status: 200",
-      "timestamp": "2026-03-11T23:30:00.899815"
+      "timestamp": "2026-03-11T23:45:01.749551"
     }
   ]
 }
