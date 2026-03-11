@@ -198,6 +198,90 @@ class GeoHunterAPITester:
             self.log_test("Image Analysis (AI Mega Brain)", False, str(e))
             return False, None
 
+    def test_analyze_multi_endpoint(self):
+        """Test multi-image analysis endpoint (NEW FEATURE)"""
+        print("\n🔥 Testing Multi-Image Analysis - This may take 60-90 seconds...")
+        try:
+            # Create multiple test images
+            image1 = self.create_test_image()
+            image2 = self.create_test_image()
+            image3 = self.create_test_image()
+            
+            analyze_data = {
+                "images": [image1, image2, image3],
+                "search_zone": "Europe"
+            }
+            
+            response = requests.post(f"{self.api_url}/analyze-multi", json=analyze_data, timeout=120)
+            success = response.status_code == 200
+            
+            if success:
+                data = response.json()
+                has_consensus = "consensus_location" in data
+                has_image_count = "image_count" in data and data["image_count"] >= 3
+                has_analysis_count = "analysis_count" in data and data["analysis_count"] >= 6  # 3 images * 2 AIs
+                has_gpt_results = "gpt_results" in data and len(data["gpt_results"]) > 0
+                has_gemini_results = "gemini_results" in data and len(data["gemini_results"]) > 0
+                
+                multi_success = has_consensus and has_image_count and has_analysis_count
+                
+                details = f"Status: {response.status_code}"
+                details += f", Images: {data.get('image_count', 0)}"
+                details += f", Analyses: {data.get('analysis_count', 0)}"
+                details += f", Consensus: {data.get('consensus_location', 'None')[:50]}"
+                details += f", Confidence: {data.get('consensus_confidence', 0)}%"
+                
+                success = multi_success
+            else:
+                details = f"Status: {response.status_code}, Error: {response.text[:200]}"
+                
+            self.log_test("Multi-Image Analysis", success, details)
+            return success, data if success else None
+            
+        except Exception as e:
+            self.log_test("Multi-Image Analysis", False, str(e))
+            return False, None
+
+    def test_analyze_video_endpoint(self):
+        """Test video analysis endpoint (NEW FEATURE)"""
+        print("\n🎬 Testing Video Analysis - This may take 60-90 seconds...")
+        try:
+            # Create a fake video base64 (minimal test)
+            fake_video_data = b"fake_video_binary_data" * 100  # Simulate video data
+            video_base64 = base64.b64encode(fake_video_data).decode()
+            
+            # Use form data as expected by the endpoint
+            form_data = {
+                "video_base64": video_base64,
+                "search_zone": "Europe"
+            }
+            
+            response = requests.post(f"{self.api_url}/analyze-video", data=form_data, timeout=120)
+            
+            # Since we're using fake video data, we expect it might fail
+            # But let's check if the endpoint exists and responds properly
+            if response.status_code == 400:
+                # Expected failure due to fake video data
+                success = "Could not extract frames" in response.text
+                details = f"Status: {response.status_code}, Expected error for fake video: {success}"
+            elif response.status_code == 200:
+                # Unexpected success - check if it has video analysis structure
+                data = response.json()
+                has_frames = "frames_extracted" in data
+                has_source = "source" in data and data["source"] == "video"
+                success = has_frames and has_source
+                details = f"Status: {response.status_code}, Frames: {data.get('frames_extracted', 0)}, Source: {data.get('source')}"
+            else:
+                success = False
+                details = f"Status: {response.status_code}, Error: {response.text[:200]}"
+                
+            self.log_test("Video Analysis Endpoint", success, details)
+            return success
+            
+        except Exception as e:
+            self.log_test("Video Analysis Endpoint", False, str(e))
+            return False
+
     def test_history_endpoints(self, analysis_id=None):
         """Test history management endpoints"""
         try:
@@ -252,6 +336,13 @@ class GeoHunterAPITester:
         # AI Analysis test (most important)
         print("\n🤖 Testing AI Analysis Integration...")
         analysis_success, analysis_data = self.test_analyze_endpoint()
+        
+        # NEW FEATURES - Multi-image and Video Analysis  
+        print("\n🔥 Testing NEW Multi-Image Features...")
+        multi_success, multi_data = self.test_analyze_multi_endpoint()
+        
+        print("\n🎬 Testing NEW Video Analysis Features...")
+        video_success = self.test_analyze_video_endpoint()
         
         # History management
         print("\n📚 Testing History Management...")

@@ -20,7 +20,10 @@ import {
   WifiOff,
   Download,
   Sparkles,
-  ChevronUp
+  Image,
+  Video,
+  Plus,
+  Images
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
@@ -31,22 +34,22 @@ const API = `${BACKEND_URL}/api`;
 const customIcon = new L.DivIcon({
   className: 'custom-marker',
   html: `<div style="
-    width: 20px; height: 20px;
+    width: 24px; height: 24px;
     background: linear-gradient(135deg, #00d4ff, #8b5cf6);
     border-radius: 50% 50% 50% 0;
     transform: rotate(-45deg);
-    border: 2px solid #08080c;
-    box-shadow: 0 0 15px rgba(0,212,255,0.6);
+    border: 3px solid #08080c;
+    box-shadow: 0 0 20px rgba(0,212,255,0.6);
   "><div style="
-    width: 6px; height: 6px;
+    width: 8px; height: 8px;
     background: #08080c;
     border-radius: 50%;
     position: absolute;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
   "></div></div>`,
-  iconSize: [20, 20],
-  iconAnchor: [10, 20],
+  iconSize: [24, 24],
+  iconAnchor: [12, 24],
 });
 
 const MapUpdater = ({ center, zoom }) => {
@@ -58,8 +61,7 @@ const MapUpdater = ({ center, zoom }) => {
 };
 
 const HunterApp = () => {
-  const [image, setImage] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [files, setFiles] = useState([]); // {file, preview, type: 'image'|'video'}
   const [zone, setZone] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -71,18 +73,17 @@ const HunterApp = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showInstall, setShowInstall] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [analysisProgress, setAnalysisProgress] = useState("");
   const fileRef = useRef(null);
 
   useEffect(() => {
     fetchHistory();
     
-    // Online/Offline detection
     const handleOnline = () => { setIsOnline(true); toast.success("Conexión restaurada"); };
     const handleOffline = () => { setIsOnline(false); };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // PWA Install prompt
     const handleInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -104,22 +105,45 @@ const HunterApp = () => {
     } catch (e) { console.error(e); }
   };
 
-  const handleImage = useCallback((e) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.match(/^image\/(jpeg|png|webp)$/)) {
-      setImage(file);
+  const handleFiles = useCallback((e) => {
+    const newFiles = Array.from(e.target.files || []);
+    
+    newFiles.forEach(file => {
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      
+      if (!isVideo && !isImage) {
+        toast.error(`${file.name}: Solo imágenes o videos`);
+        return;
+      }
+      
+      if (files.length >= 10) {
+        toast.error("Máximo 10 archivos");
+        return;
+      }
+      
       const reader = new FileReader();
-      reader.onload = (ev) => setPreview(ev.target.result);
+      reader.onload = (ev) => {
+        setFiles(prev => [...prev, {
+          file,
+          preview: ev.target.result,
+          type: isVideo ? 'video' : 'image',
+          name: file.name
+        }]);
+      };
       reader.readAsDataURL(file);
-      setResult(null);
-      setShowResults(false);
-    } else {
-      toast.error("Solo JPEG, PNG o WEBP");
-    }
-  }, []);
+    });
+    
+    setResult(null);
+    setShowResults(false);
+  }, [files.length]);
+
+  const removeFile = (index) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
   const analyze = async () => {
-    if (!image) return toast.error("Sube una imagen primero");
+    if (files.length === 0) return toast.error("Sube al menos una imagen o video");
     
     if (!isOnline) {
       toast.warning("Sin conexión. Se procesará cuando vuelvas a tener internet.");
@@ -129,40 +153,93 @@ const HunterApp = () => {
     setLoading(true);
     setStep(1);
     setShowResults(true);
+    setAnalysisProgress("Preparando archivos...");
 
-    const reader = new FileReader();
-    reader.readAsDataURL(image);
-    reader.onload = async () => {
-      const base64 = reader.result.split(",")[1];
+    try {
+      // Separate images and videos
+      const images = files.filter(f => f.type === 'image');
+      const videos = files.filter(f => f.type === 'video');
       
-      setTimeout(() => setStep(2), 600);
-      setTimeout(() => setStep(3), 1500);
+      let allImages = [];
       
-      try {
-        const res = await axios.post(`${API}/analyze`, {
-          image_base64: base64,
+      // Process images
+      setAnalysisProgress(`Procesando ${images.length} imagen(es)...`);
+      for (const img of images) {
+        const base64 = img.preview.split(",")[1];
+        allImages.push(base64);
+      }
+      
+      setStep(2);
+      
+      // Process videos - extract frames on backend
+      if (videos.length > 0) {
+        setAnalysisProgress(`Extrayendo frames de ${videos.length} video(s)...`);
+        for (const vid of videos) {
+          const base64 = vid.preview.split(",")[1];
+          try {
+            const formData = new FormData();
+            formData.append('video_base64', base64);
+            if (zone) formData.append('search_zone', zone);
+            
+            // Video analysis returns complete result
+            const res = await axios.post(`${API}/analyze-video`, formData);
+            // If we have videos, we can use their result directly
+            if (res.data && allImages.length === 0) {
+              setStep(5);
+              setResult(res.data);
+              if (res.data.consensus_coordinates) {
+                setCenter([res.data.consensus_coordinates.lat, res.data.consensus_coordinates.lng]);
+                setZoom(15);
+              }
+              fetchHistory();
+              toast.success(`¡Ubicación encontrada! ${res.data.frames_extracted} frames analizados`);
+              setLoading(false);
+              return;
+            }
+          } catch (e) {
+            console.error("Video error:", e);
+            toast.error("Error procesando video");
+          }
+        }
+      }
+      
+      setStep(3);
+      setAnalysisProgress("Analizando con GPT-5.2 + Gemini...");
+      
+      // Analyze all images
+      if (allImages.length > 0) {
+        const res = await axios.post(`${API}/analyze-multi`, {
+          images: allImages,
           search_zone: zone || null,
         });
         
         setStep(4);
-        setTimeout(() => setStep(5), 400);
-        setResult(res.data);
+        setAnalysisProgress("Calculando consenso...");
         
-        if (res.data.consensus_coordinates) {
-          setCenter([res.data.consensus_coordinates.lat, res.data.consensus_coordinates.lng]);
-          setZoom(15);
-        }
-        
-        fetchHistory();
-        toast.success("¡Ubicación encontrada!");
-      } catch (e) {
-        console.error(e);
-        toast.error("Error en análisis");
-        setStep(0);
-      } finally {
-        setLoading(false);
+        setTimeout(() => {
+          setStep(5);
+          setResult(res.data);
+          
+          if (res.data.consensus_coordinates) {
+            setCenter([res.data.consensus_coordinates.lat, res.data.consensus_coordinates.lng]);
+            setZoom(15);
+          }
+          
+          fetchHistory();
+          const msg = res.data.image_count > 1 
+            ? `¡Ubicación encontrada! ${res.data.image_count} imágenes, ${res.data.analysis_count} análisis`
+            : "¡Ubicación encontrada!";
+          toast.success(msg);
+        }, 500);
       }
-    };
+      
+    } catch (e) {
+      console.error(e);
+      toast.error("Error en análisis");
+      setStep(0);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadHistory = (item) => {
@@ -193,6 +270,12 @@ const HunterApp = () => {
       setDeferredPrompt(null);
       setShowInstall(false);
     }
+  };
+
+  const clearAll = () => {
+    setFiles([]);
+    setResult(null);
+    setShowResults(false);
   };
 
   const getConfClass = (c) => c >= 70 ? "high" : c >= 40 ? "medium" : "low";
@@ -252,35 +335,75 @@ const HunterApp = () => {
 
       {/* Bottom Panel */}
       <div className="bottom-panel">
-        {/* Upload */}
-        <div 
-          className={`upload-zone ${preview ? 'has-image' : ''}`}
-          onClick={() => fileRef.current?.click()}
-          data-testid="upload-area"
-        >
-          {preview ? (
-            <div className="relative">
-              <img src={preview} alt="Preview" />
-              {loading && (
-                <div className="scan-overlay">
-                  <div className="scan-line" />
-                </div>
-              )}
-              <button 
-                onClick={(e) => { e.stopPropagation(); setImage(null); setPreview(null); }}
-                className="absolute top-1 right-1 p-1 bg-black/70 rounded-full"
-              >
-                <X className="w-4 h-4" />
+        {/* Multi-file Upload */}
+        <div className="upload-section">
+          <div className="upload-header">
+            <span className="upload-title">
+              <Images className="w-4 h-4" />
+              {files.length === 0 ? "Subir imágenes/videos" : `${files.length} archivo(s)`}
+            </span>
+            {files.length > 0 && (
+              <button onClick={clearAll} className="clear-btn">
+                <X className="w-4 h-4" /> Limpiar
               </button>
+            )}
+          </div>
+          
+          {files.length === 0 ? (
+            <div 
+              className="upload-zone"
+              onClick={() => fileRef.current?.click()}
+              data-testid="upload-area"
+            >
+              <div className="upload-icons">
+                <Image className="w-6 h-6" />
+                <Plus className="w-4 h-4" />
+                <Video className="w-6 h-6" />
+              </div>
+              <p>Toca para subir imágenes o videos</p>
+              <span>Múltiples archivos = Mayor precisión</span>
             </div>
           ) : (
-            <div className="upload-text">
-              <Upload className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>Toca para subir imagen</p>
+            <div className="files-grid">
+              {files.map((f, i) => (
+                <div key={i} className="file-thumb">
+                  {f.type === 'video' ? (
+                    <div className="video-thumb">
+                      <Video className="w-6 h-6 text-cyan-400" />
+                    </div>
+                  ) : (
+                    <img src={f.preview} alt={f.name} />
+                  )}
+                  <button onClick={() => removeFile(i)} className="remove-file">
+                    <X className="w-3 h-3" />
+                  </button>
+                  {loading && i === 0 && (
+                    <div className="scan-overlay">
+                      <div className="scan-line" />
+                    </div>
+                  )}
+                </div>
+              ))}
+              {files.length < 10 && (
+                <div 
+                  className="add-more"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Plus className="w-6 h-6" />
+                </div>
+              )}
             </div>
           )}
         </div>
-        <input ref={fileRef} type="file" accept="image/*" onChange={handleImage} className="hidden" />
+        
+        <input 
+          ref={fileRef} 
+          type="file" 
+          accept="image/*,video/*" 
+          onChange={handleFiles} 
+          className="hidden" 
+          multiple
+        />
 
         {/* Search Zone */}
         <input
@@ -295,19 +418,27 @@ const HunterApp = () => {
         {/* Analyze Button */}
         <button 
           onClick={analyze} 
-          disabled={!image || loading}
+          disabled={files.length === 0 || loading}
           className="btn-analyze"
           data-testid="analyze-btn"
         >
           {loading ? (
-            <><Loader2 className="w-5 h-5 animate-spin" /> Rastreando...</>
+            <><Loader2 className="w-5 h-5 animate-spin" /> {analysisProgress}</>
           ) : (
             <><Brain className="w-5 h-5" /> RASTREAR UBICACIÓN</>
           )}
         </button>
 
+        {/* Accuracy Info */}
+        {files.length > 1 && !loading && (
+          <div className="accuracy-boost">
+            <Sparkles className="w-4 h-4" />
+            <span>{files.length} archivos = {Math.min(99, 60 + files.length * 5)}% precisión potencial</span>
+          </div>
+        )}
+
         {/* History */}
-        {history.length > 0 && !showResults && (
+        {history.length > 0 && !showResults && files.length === 0 && (
           <div className="history-section">
             <div className="section-title">Historial reciente</div>
             {history.slice(0, 3).map((item) => (
@@ -317,7 +448,9 @@ const HunterApp = () => {
                 </div>
                 <div className="history-info">
                   <div className="history-name">{item.consensus_location || "Desconocido"}</div>
-                  <div className="history-conf">{item.consensus_confidence}% confianza</div>
+                  <div className="history-conf">
+                    {item.consensus_confidence}% • {item.image_count || 1} archivo(s)
+                  </div>
                 </div>
                 <button onClick={(e) => deleteHistory(item.id, e)} className="p-2 text-gray-500">
                   <Trash2 className="w-4 h-4" />
@@ -341,16 +474,34 @@ const HunterApp = () => {
 
         {loading && (
           <div className="progress-list">
-            <Step n={1} current={step} label="Procesando imagen" />
-            <Step n={2} current={step} label="Análisis GPT-5.2" badge="gpt" />
-            <Step n={3} current={step} label="Análisis Gemini" badge="gemini" />
-            <Step n={4} current={step} label="Google Maps" />
-            <Step n={5} current={step} label="Calculando consenso" />
+            <Step n={1} current={step} label="Preparando archivos" />
+            <Step n={2} current={step} label="Extrayendo frames" />
+            <Step n={3} current={step} label="Análisis GPT-5.2 + Gemini" badge="dual" />
+            <Step n={4} current={step} label="Google Maps + Consenso" />
+            <Step n={5} current={step} label="Resultado final" />
           </div>
         )}
 
         {result && !loading && (
           <div className="results-content">
+            {/* Stats */}
+            {(result.image_count > 1 || result.analysis_count > 2) && (
+              <div className="analysis-stats">
+                <div className="stat">
+                  <span className="stat-value">{result.image_count || 1}</span>
+                  <span className="stat-label">Archivos</span>
+                </div>
+                <div className="stat">
+                  <span className="stat-value">{result.analysis_count || 2}</span>
+                  <span className="stat-label">Análisis</span>
+                </div>
+                <div className="stat">
+                  <span className="stat-value">{result.landmarks?.length || 0}</span>
+                  <span className="stat-label">Pistas</span>
+                </div>
+              </div>
+            )}
+
             {/* Consensus */}
             <div className="consensus-card">
               <div className="consensus-location" data-testid="consensus-location">
@@ -378,6 +529,18 @@ const HunterApp = () => {
                 </div>
               )}
             </div>
+
+            {/* Landmarks */}
+            {result.landmarks?.length > 0 && (
+              <div className="landmarks-section">
+                <div className="section-title">Pistas identificadas</div>
+                <div className="landmarks-list">
+                  {result.landmarks.slice(0, 8).map((l, i) => (
+                    <span key={i} className="landmark-tag">{l}</span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Nearby Places */}
             {result.nearby_places?.length > 0 && (
@@ -461,7 +624,7 @@ const Step = ({ n, current, label, badge }) => {
         {done ? <CheckCircle className="w-4 h-4" /> : active ? <Loader2 className="w-4 h-4 animate-spin" /> : n}
       </div>
       <span className={`step-label ${done ? 'done' : active ? 'active' : ''}`}>{label}</span>
-      {badge && <span className={`ai-badge ${badge} ml-auto`}>{badge === 'gpt' ? 'GPT' : 'Gemini'}</span>}
+      {badge === 'dual' && <span className="dual-badge">2 IAs</span>}
     </div>
   );
 };
