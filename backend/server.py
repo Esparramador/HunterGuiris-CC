@@ -264,11 +264,80 @@ async def geocode_location(location: str) -> Optional[dict]:
                 return {
                     "lat": location_data["lat"],
                     "lng": location_data["lng"],
-                    "formatted_address": result.get("formatted_address", location)
+                    "formatted_address": result.get("formatted_address", location),
+                    "place_id": result.get("place_id"),
+                    "types": result.get("types", [])
                 }
     except Exception as e:
         logger.error(f"Geocoding error: {str(e)}")
     return None
+
+
+async def get_place_details(lat: float, lng: float) -> Optional[dict]:
+    """Get detailed place info using Google Maps reverse geocoding and Places API"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Reverse geocoding
+            response = await client.get(
+                "https://maps.googleapis.com/maps/api/geocode/json",
+                params={
+                    "latlng": f"{lat},{lng}",
+                    "key": GOOGLE_MAPS_API_KEY
+                }
+            )
+            data = response.json()
+            
+            if data.get("status") == "OK" and data.get("results"):
+                result = data["results"][0]
+                
+                # Extract components
+                components = {}
+                for comp in result.get("address_components", []):
+                    for type_ in comp.get("types", []):
+                        components[type_] = comp.get("long_name")
+                
+                return {
+                    "formatted_address": result.get("formatted_address"),
+                    "place_id": result.get("place_id"),
+                    "country": components.get("country"),
+                    "administrative_area": components.get("administrative_area_level_1"),
+                    "locality": components.get("locality"),
+                    "sublocality": components.get("sublocality"),
+                    "route": components.get("route"),
+                    "types": result.get("types", [])
+                }
+    except Exception as e:
+        logger.error(f"Place details error: {str(e)}")
+    return None
+
+
+async def search_nearby_places(lat: float, lng: float, radius: int = 1000) -> List[dict]:
+    """Search for nearby places using Google Places API"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://maps.googleapis.com/maps/api/place/nearbysearch/json",
+                params={
+                    "location": f"{lat},{lng}",
+                    "radius": radius,
+                    "key": GOOGLE_MAPS_API_KEY
+                }
+            )
+            data = response.json()
+            
+            if data.get("status") == "OK":
+                places = []
+                for place in data.get("results", [])[:5]:  # Top 5 places
+                    places.append({
+                        "name": place.get("name"),
+                        "types": place.get("types", []),
+                        "vicinity": place.get("vicinity"),
+                        "rating": place.get("rating")
+                    })
+                return places
+    except Exception as e:
+        logger.error(f"Nearby search error: {str(e)}")
+    return []
 
 
 def calculate_consensus(gpt: AIAnalysis, gemini: AIAnalysis) -> tuple:
@@ -357,6 +426,13 @@ async def analyze_image(request: SearchRequest):
                     "lng": geocode_result["lng"]
                 }
         
+        # Enrich with Google Maps data if we have coordinates
+        place_details = None
+        nearby_places = []
+        if consensus_coords:
+            place_details = await get_place_details(consensus_coords["lat"], consensus_coords["lng"])
+            nearby_places = await search_nearby_places(consensus_coords["lat"], consensus_coords["lng"])
+        
         # Store in database
         result = {
             "id": result_id,
@@ -368,6 +444,8 @@ async def analyze_image(request: SearchRequest):
             "consensus_location": consensus_location,
             "consensus_coordinates": consensus_coords,
             "consensus_confidence": consensus_confidence,
+            "place_details": place_details,
+            "nearby_places": nearby_places,
             "status": "completed"
         }
         
