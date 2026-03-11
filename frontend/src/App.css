@@ -1,34 +1,329 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* GeoHunter AI - Command Center Styles */
+
+/* Main layout - no center alignment */
+.geohunter-layout {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: #050505;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
-}
-
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
+@media (max-width: 1024px) {
+  .geohunter-layout {
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+  }
 }
 
-.App-link {
-    color: #61dafb;
+/* Sidebar */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  min-width: 320px;
+  height: 100vh;
+  background: rgba(10, 10, 10, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  overflow-y: auto;
+  z-index: 20;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+@media (max-width: 1024px) {
+  .sidebar {
+    width: 100%;
+    min-width: 100%;
+    height: auto;
+    max-height: 50vh;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Map Stage */
+.map-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Results Panel */
+.results-panel {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 400px;
+  max-height: calc(100vh - 40px);
+  z-index: 15;
+  overflow-y: auto;
+}
+
+@media (max-width: 1200px) {
+  .results-panel {
+    width: 340px;
+  }
+}
+
+@media (max-width: 768px) {
+  .results-panel {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 60vh;
+    border-radius: 16px 16px 0 0;
+  }
+}
+
+/* Image Upload Area */
+.upload-area {
+  position: relative;
+  min-height: 200px;
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.3s ease, background-color 0.3s ease;
+}
+
+.upload-area:hover {
+  border-color: #00F0FF;
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.upload-area.has-image {
+  border-style: solid;
+  border-color: rgba(0, 240, 255, 0.3);
+}
+
+.upload-area img {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+}
+
+/* AI Analysis Card */
+.ai-card {
+  background: rgba(17, 17, 17, 0.9);
+  border-radius: 8px;
+  padding: 16px;
+  border-left: 3px solid;
+}
+
+.ai-card.gpt {
+  border-left-color: #7000FF;
+}
+
+.ai-card.gemini {
+  border-left-color: #00F0FF;
+}
+
+/* Consensus Card */
+.consensus-card {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.1) 0%, rgba(112, 0, 255, 0.1) 100%);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+/* History Item */
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(17, 17, 17, 0.6);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.history-item:hover {
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.history-item img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+/* Loading Overlay */
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 5, 5, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* Data Display */
+.data-label {
+  font-family: 'Inter', sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #52525B;
+  margin-bottom: 4px;
+}
+
+.data-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: #FFFFFF;
+}
+
+.data-value.highlight {
+  color: #00F0FF;
+}
+
+/* Coordinates Display */
+.coords-display {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #00FF94;
+  background: rgba(0, 255, 148, 0.1);
+  padding: 8px 12px;
+  border-radius: 4px;
+  display: inline-flex;
+  gap: 8px;
+}
+
+/* Map Custom Styles */
+.gm-style {
+  background: #050505 !important;
+}
+
+/* Custom marker pulse */
+@keyframes markerPulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.marker-pulse {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: rgba(0, 240, 255, 0.4);
+  border-radius: 50%;
+  animation: markerPulse 1.5s ease-out infinite;
+}
+
+/* Zone Selector */
+.zone-select {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.zone-select:focus {
+  outline: none;
+  border-color: #00F0FF;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+/* Landmark Tags */
+.landmark-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: #A1A1AA;
+}
+
+/* Section Headers */
+.section-header {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #52525B;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 16px;
+}
+
+/* Analysis Progress Steps */
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.progress-step .step-indicator {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.progress-step.active .step-indicator {
+  background: #00F0FF;
+  color: #050505;
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+}
+
+.progress-step.completed .step-indicator {
+  background: #00FF94;
+  color: #050505;
+}
+
+.progress-step.pending .step-indicator {
+  background: rgba(255, 255, 255, 0.1);
+  color: #52525B;
+}
+
+/* Quick Stats */
+.quick-stat {
+  text-align: center;
+  padding: 12px;
+  background: rgba(17, 17, 17, 0.6);
+  border-radius: 8px;
+}
+
+.quick-stat .stat-value {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 28px;
+  font-weight: 300;
+  color: #00F0FF;
+}
+
+.quick-stat .stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #52525B;
 }
