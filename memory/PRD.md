@@ -1,41 +1,48 @@
-# GeoHunter AI - Product Requirements Document
+# Hunter Guiris CC - Product Requirements Document
 
-## Original Problem Statement
-Desarrollar una app capaz de mapear, rastrear, identificar y localizar cualquier parte del mundo mediante fotos. El usuario puede especificar la zona de búsqueda (país, ciudad, barrio, condado, estado) para facilitar el trabajo de localización. Integración con mapa interactivo tipo Google Earth que muestre el proceso de mapeo y localización en tiempo real.
+## App Info
+- **Nombre**: Hunter Guiris CC
+- **Tipo**: PWA (Progressive Web App) instalable en móvil
+- **Propósito**: Geolocalización inteligente mediante fotos usando IA
 
-**User Choices**: 
-- Usar GPT-5.2 + Gemini trabajando juntos como un "mega cerebro"
-- Integrar Google Maps API para enriquecer los datos de geolocalización
-- Diseño profesional
+## Funcionalidades Implementadas ✅
 
-## What's Been Implemented ✅
-**Date: 2026-01-11 - Update 2**
+### Core Features
+- **Análisis de imágenes** con GPT-5.2 + Gemini trabajando en paralelo
+- **Google Maps API** para enriquecer datos (geocoding, places, nearby)
+- **Mapa interactivo** Leaflet con tema oscuro
+- **Historial de búsquedas** persistente
+- **Zona de búsqueda opcional** para acotar la localización
 
-### Backend (FastAPI)
-- POST /api/analyze - Análisis de imagen con GPT-5.2 + Gemini + Google Maps enrichment
-- GET /api/history - Historial de análisis
-- DELETE /api/history/{id} - Eliminar item del historial
-- POST /api/geocode - Geocodificación
+### PWA Features
+- **Instalable** como app nativa en Android/iOS
+- **Service Worker** para caché de archivos
+- **Modo offline**: Guarda búsquedas en cola cuando no hay internet
+- **Tiles del mapa cacheados** para navegación offline
+- **Manifest.json** con iconos y configuración
 
-### Google Maps Integration
-- **Geocoding API**: Convierte ubicaciones a coordenadas
-- **Reverse Geocoding**: Obtiene dirección formateada de coordenadas
-- **Place Details**: País, región administrativa, localidad, sublocalidad
-- **Nearby Places Search**: Lugares cercanos con nombre, tipo, dirección y rating
+### Diseño
+- **Mobile-first** responsive
+- **Tema oscuro** profesional
+- **Panel slide-up** para resultados
+- **Indicador de estado** online/offline
 
-### Frontend (React)
-- Diseño profesional con tema oscuro moderno
-- Logo con gradiente cyan-púrpura
-- Panel de resultados con:
-  - Ubicación de consenso + confianza
-  - Datos de Google Maps (dirección, lugar, región)
-  - Lugares cercanos identificados
-  - Análisis detallado de GPT-5.2 y Gemini
-- Mapa Leaflet con tiles CARTO dark
-- Animaciones suaves y microinteracciones
-- Barras de progreso durante análisis
+## Cómo Instalar en Móvil
+1. Abrir la web en Chrome/Safari
+2. Tocar "Añadir a pantalla de inicio" o "Instalar app"
+3. La app se instalará como aplicación nativa
 
-## Next Tasks
-1. Añadir Street View preview cuando esté disponible
-2. Exportar resultados a PDF
-3. Modo comparación lado a lado de IAs
+## Limitaciones
+- **Requiere internet** para análisis de IA (GPT y Gemini están en la nube)
+- Sin internet: Las búsquedas se guardan y procesan cuando vuelve la conexión
+
+## APIs Integradas
+- OpenAI GPT-5.2
+- Google Gemini 2.5 Flash
+- Google Maps Geocoding API
+- Google Maps Places API
+
+## Next Steps
+- Integrar Google Street View
+- Exportar resultados a PDF
+- Modo batch para múltiples imágenes

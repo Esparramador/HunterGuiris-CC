@@ -116,7 +116,7 @@ async def analyze_with_gpt(image_base64: str, search_zone: Optional[str] = None)
         image_content = ImageContent(image_base64=image_base64)
         user_message = UserMessage(
             text=f"{zone_hint}Analyze this image and identify the location. Respond ONLY with valid JSON.",
-            image_contents=[image_content]
+            file_contents=[image_content]
         )
 
         response = await chat.send_message(user_message)
@@ -196,7 +196,7 @@ async def analyze_with_gemini(image_base64: str, search_zone: Optional[str] = No
         image_content = ImageContent(image_base64=image_base64)
         user_message = UserMessage(
             text=f"{zone_hint}Analyze this image and identify the location. Respond ONLY with valid JSON.",
-            image_contents=[image_content]
+            file_contents=[image_content]
         )
 
         response = await chat.send_message(user_message)
