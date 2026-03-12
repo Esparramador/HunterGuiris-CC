@@ -1,0 +1,144 @@
+<analysis>**original_problem_statement:**
+El usuario quiere desarrollar una aplicación full-stack llamada Hunter Guiris CC para geolocalizar lugares a partir de fotos y videos.
+
+PRODUCT REQUIREMENTS:
+1.  **Core Functionality:** El usuario sube una o más imágenes/videos de un lugar. La aplicación debe analizar los archivos y determinar la ubicación geográfica.
+2.  **AI Integration:** Utilizar las APIs de OpenAI (GPT) y Google (Gemini) en paralelo para analizar las imágenes.
+3.  **Prompt Engineering:** El sistema de IA debe ser exhaustivo, analizando pequeños detalles (barandillas, techos, edificios) para identificar la ubicación del fotógrafo, no solo lo que está mirando.
+4.  **Contexto de Búsqueda:** El usuario debe poder proporcionar una zona de búsqueda (país, ciudad) para acotar el análisis de la IA.
+5.  **Map Display:** Mostrar la ubicación encontrada en un mapa interactivo (actualmente usando Leaflet.js).
+6.  **Google Maps API:** El usuario quiere que la API de Google Maps se use para mejorar la precisión del análisis de las IAs, no solo para mostrar el mapa.
+7.  **Mobile & Offline:** La aplicación debe ser instalable en móviles (Android APK) y tener funcionalidades offline. Se acordó un enfoque de Progressive Web App (PWA) que permite la instalación y el almacenamiento en caché de mapas e historial, con una cola de análisis para cuando se recupere la conexión a internet.
+8.  **UI/UX:** La aplicación debe tener un diseño profesional y responsive, con una interfaz clara para subir archivos y ver resultados. El usuario ha proporcionado un repositorio de GitHub con su versión preferida del diseño y la funcionalidad, que incluye autenticación de Google.
+
+**User's preferred language**: Spanish
+
+**what currently exists?**
+La aplicación está completamente clonada desde el repositorio de GitHub del usuario. Consta de un backend FastAPI y un frontend React. El backend está configurado para llamar a las APIs de OpenAI y Gemini en paralelo, utilizando un prompt exhaustivo para un análisis detallado. El frontend incluye autenticación con Google, una vista de mapa con Leaflet, un panel lateral para la subida de archivos y un historial de búsquedas. La funcionalidad principal de geolocalización está rota debido a problemas de autenticación con las APIs de IA.
+
+**Last working item**:
+- **Last item agent was working:** El agente estaba lidiando con una serie de fallos de API. Tras diagnosticar que la  se había quedado sin presupuesto y que las claves de API anteriores del usuario habían expirado o eran incorrectas, el usuario proporcionó un nuevo juego de claves. Sin embargo, antes de poder implementarlas correctamente, el usuario se enfadó porque el agente, en un intento de depuración anterior, había eliminado la funcionalidad de inicio de sesión. La última acción del agente fue intentar deshacer la eliminación del login, pero la sesión terminó antes de completar la restauración.
+- **Status:** BLOCKED
+- **Agent Testing Done:** Y (Mediante , se verificó que las claves de API anteriores no eran válidas).
+- **Which testing method agent to use?** backend testing agent
+- **User Testing Done:** N
+
+**All Pending/In progress Issue list**:
+- **Issue 1:** (P0) La funcionalidad principal de análisis de geolocalización está completamente rota.
+- **Issue 2:** (P1) El agente modificó el flujo de autenticación, lo que enfadó al usuario.
+
+**Issues Detail:**
+- **Issue 1:** **API Keys Inválidas o sin Presupuesto**
+    - **Attempted fixes:**
+        1.  Se intentó usar , pero el presupuesto estaba agotado.
+        2.  Se intentó usar las claves de API proporcionadas por el usuario, pero las APIs de OpenAI y Google las rechazaron como inválidas o expiradas.
+        3.  El agente recibió un nuevo conjunto de claves del usuario justo antes de que la conversación se desviara hacia el problema del login.
+    - **Next debug checklist:**
+        1.  Verificar que el código del frontend, especialmente , coincide con el del repositorio del usuario, restaurando el flujo de autenticación de Google.
+        2.  Actualizar el archivo  con las **nuevas** claves de API proporcionadas por el usuario en el mensaje #422.
+        3.  Reiniciar el servicio de backend con backend: stopped
+backend: started.
+        4.  Realizar una llamada de prueba  al endpoint  para verificar si las nuevas claves son aceptadas por los servicios de OpenAI y Gemini.
+    - **Why fix this issue and what will be achieved with the fix?** Es el bloqueo principal. Sin esto, la aplicación no tiene ninguna utilidad. Solucionarlo restaurará la funcionalidad central de la aplicación.
+    - **Status:** BLOCKED
+    - **Is recurring issue?** Y
+    - **Should Test frontend/backend/both after fix?** backend
+    - **Blocked on other issue:** Issue 2.
+
+- **Issue 2:** **Desincronización del Código con la Expectativa del Usuario (Login)**
+    - **Attempted fixes:** El agente empezó a deshacer los cambios en  pero no terminó.
+    - **Next debug checklist:**
+        1.  Restaurar  a la versión exacta del repositorio de GitHub del usuario para reincorporar el sistema de login.
+        2.  Reiniciar el servicio de frontend para asegurar que los cambios se apliquen.
+    - **Why fix this issue and what will be achieved with the fix?** Para calmar al usuario y restaurar la confianza, asegurando que el agente está trabajando sobre la base de código correcta.
+    - **Status:** IN PROGRESS
+    - **Is recurring issue?** N
+    - **Should Test frontend/backend/both after fix?** frontend
+
+**In progress Task List**:
+N/A
+
+**Upcoming and Future Tasks**
+- **P0: Generación de APK (Capacitor/PWABuilder):** Una vez que la funcionalidad principal esté verificada, el siguiente paso es empaquetar la PWA existente en un archivo  descargable para Android, como solicitó el usuario. El agente ya mencionó Capacitor como una posible herramienta.
+- **P1: Integración de Google Maps API para Análisis:** Implementar el uso de la API de Google Maps (Geocoding/Places) para proporcionar contexto adicional a los prompts de OpenAI y Gemini, mejorando así la precisión del análisis, que es una petición clave del usuario aún no abordada.
+
+**Completed work in this session**
+- Sincronización completa del espacio de trabajo con el repositorio de GitHub del usuario ().
+- Implementación de un prompt exhaustivo en  para un análisis de IA más detallado, incluyendo la ejecución en paralelo de las IAs con .
+- Múltiples iteraciones de corrección de CSS para lograr el diseño deseado por el usuario, tanto en vista de escritorio (panel derecho) como móvil (panel inferior).
+- Configuración de la aplicación como una Progressive Web App (PWA) mediante la creación de  y un service worker.
+- Implementación de la subida de múltiples archivos (imágenes/videos) en el frontend y backend.
+- Cambio del mapa de Google Maps a Leaflet.js debido a problemas iniciales con la API key en el frontend.
+
+**Earlier issues found/mentioned but not fixed**
+- **Issue 1:** La solicitud del usuario de usar la API de Google Maps para **ayudar en el análisis de la IA** (no solo para mostrar el mapa) no ha sido implementada. El backend actualmente no utiliza ninguna API de Google Maps para enriquecer el contexto del prompt.
+
+**Known issue recurrence from previous fork**
+N/A
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Backend:** FastAPI,  para llamadas concurrentes a APIs.
+- **Frontend:** React, PWA (Progressive Web App), Leaflet.js para mapas.
+- **Integrations:** OpenAI API, Google Gemini API.
+- **Authentication:** Google OAuth implementado en el código del usuario.
+
+**key DB schema**
+La aplicación utiliza MongoDB, pero los esquemas de los modelos no fueron explorados en detalle. Se infiere la existencia de colecciones para  y .
+
+**changes in tech stack**
+- El frontend fue migrado de Google Maps a Leaflet.js para la visualización del mapa.
+
+**All files of reference**
+- : Contiene toda la lógica del backend, incluyendo los endpoints y la función  con el prompt exhaustivo.
+- : Componente principal de React que gestiona el estado, las rutas y la autenticación. Fue modificado y necesita ser restaurado.
+- : Archivo principal de estilos que define el layout de la aplicación.
+- : Archivo de configuración donde deben ir las nuevas claves de API.
+- : Archivo de configuración de la PWA.
+
+**Areas that need refactoring**:
+N/A
+
+**key api endpoints**
+- : Endpoint principal para subir archivos y recibir el análisis de geolocalización.
+- : Endpoint para la autenticación con Google.
+
+**Critical Info for New Agent**
+1.  **El usuario está frustrado.** Tu primera prioridad es restaurar la confianza. No hagas cambios no solicitados. Restaura la funcionalidad de login INMEDIATAMENTE y luego aborda el problema de las claves de API.
+2.  **El problema central es la autenticación de la API.** Las claves anteriores no funcionan. Debes usar las **NUEVAS** claves que el usuario proporcionó en el mensaje #422. No vuelvas a usar las claves antiguas ni la  hasta que el usuario lo indique.
+3.  **No toques el login.** El usuario fue muy claro: no quiere que se elimine el sistema de autenticación. Asegúrate de que  esté en el estado que el usuario espera (con Google Auth).
+4.  Tu URL de trabajo es diferente a la que el usuario podría estar mirando. Explica claramente que los cambios que haces se reflejarán en la URL del preview actual y que el usuario podría necesitar limpiar su caché para verlos.
+
+**documents and test reports created in this job**
+- 
+
+**Last 10 User Messages and any pending HUMAN messages**
+1.  **User (#422):** Proporciona **nuevas** claves de API para Gemini y Chat GPT y se queja de que el login ya no es necesario y la URL del agente no funciona bien, pidiendo que se arregle.
+2.  **Agent (#423-434):** Malinterpreta la petición y comienza a eliminar activamente el código de autenticación para que la app sea de acceso directo.
+3.  **User (#435):** Reacciona con enfado, diciendo al agente que está liando que flipas (haciendo un gran lío). Le ordena deshacer todo, le recuerda que su URL de trabajo es diferente, y le acusa de querer comerse todos los créditos. Pide explícitamente **no quitar el login**.
+4.  **Agent (#436):** Se disculpa y acepta deshacer los cambios en el login. La sesión termina.
+
+El mensaje pendiente es la frustración del usuario en #435, que necesita ser abordada restaurando el código y arreglando el problema de la API.
+
+**Project Health Check:**
+- **Broken:** La funcionalidad principal () no funciona debido a un error de autenticación con las APIs de IA.
+
+**3rd Party Integrations**
+- **OpenAI GPT (Text Generation):** Requiere una clave de API de usuario. Las claves actuales son probablemente inválidas.
+- **Google Gemini (Text/Vision Generation):** Requiere una clave de API de usuario. Las claves actuales son probablemente inválidas.
+- **Google Maps:** Se proporcionó una clave, pero actualmente la visualización del mapa usa Leaflet.js. La clave podría ser necesaria para la futura tarea de análisis.
+- **Emergent-managed Google Auth:** Integrado en el código base del usuario.
+
+**Testing status**
+- **Testing agent used after significant changes:** YES
+- **Troubleshoot agent used after agent stuck in loop:** NO
+- **Test files created:** N/A
+- **Known regressions:** La funcionalidad de análisis de geolocalización, que funcionaba en un punto, está ahora rota.
+
+**Credentials to test flow:**
+El login se realiza a través de Google OAuth. Se puede utilizar una cuenta de prueba de Google para iniciar sesión.
+
+**What agent forgot to execute**
+La tarea más inmediata que quedó pendiente fue deshacer los cambios no solicitados en el sistema de autenticación (), como pidió el usuario en su último mensaje.</analysis>

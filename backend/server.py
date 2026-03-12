@@ -19,7 +19,9 @@ import tempfile
 from PIL import Image
 import io
 import json
-from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+from openai import AsyncOpenAI
+from google import genai as google_genai
+from google.genai import types as genai_types
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -337,15 +339,7 @@ def extract_video_frames(video_base64: str, max_frames: int = 5) -> List[str]:
     return frames
 
 
-async def analyze_single_image(image_base64: str, search_zone: Optional[str], provider: str) -> AIAnalysis:
-    """Analyze a single image with specified provider using Emergent LLM"""
-    model = "gpt-4o" if provider == "openai" else "gemini-2.0-flash"
-    provider_name = "openai" if provider == "openai" else "gemini"
-    
-    # Convert image to JPEG for API compatibility
-    converted_image = convert_to_jpeg_base64(image_base64)
-    
-    system_prompt = """You are an ELITE forensic geolocation analyst. Your mission is to identify WHERE THE PHOTOGRAPHER IS STANDING - not what they're looking at.
+GEOLOCATION_SYSTEM_PROMPT = """You are an ELITE forensic geolocation analyst. Your mission is to identify WHERE THE PHOTOGRAPHER IS STANDING - not what they're looking at.
 
 ## CRITICAL: Identify THE PHOTOGRAPHER'S LOCATION, not what they're photographing.
 
@@ -366,34 +360,79 @@ async def analyze_single_image(image_base64: str, search_zone: Optional[str], pr
     "coordinates": {"lat": float, "lng": float} or null
 }"""
 
+# Initialize AI clients
+openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY, max_retries=0) if OPENAI_API_KEY else None
+gemini_client = google_genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+
+def parse_ai_response(response_text: str) -> dict:
+    """Parse JSON from AI response, handling code blocks"""
+    clean = response_text.strip()
+    if "```json" in clean:
+        clean = clean.split("```json")[1].split("```")[0]
+    elif "```" in clean:
+        parts = clean.split("```")
+        if len(parts) >= 2:
+            clean = parts[1]
+    return json.loads(clean.strip())
+
+
+async def analyze_with_openai(image_base64: str, user_text: str) -> str:
+    """Call OpenAI GPT-4o Vision API"""
+    if not openai_client:
+        raise Exception("OpenAI API key not configured")
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": GEOLOCATION_SYSTEM_PROMPT},
+            {"role": "user", "content": [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
+            ]}
+        ],
+        max_tokens=2000,
+        temperature=0.3
+    )
+    return response.choices[0].message.content
+
+
+async def analyze_with_gemini(image_base64: str, user_text: str) -> str:
+    """Call Google Gemini Vision API using google-genai SDK"""
+    if not gemini_client:
+        raise Exception("Gemini API key not configured")
+    image_bytes = base64.b64decode(image_base64)
+    
+    response = await gemini_client.aio.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[
+            genai_types.Content(parts=[
+                genai_types.Part.from_text(text=GEOLOCATION_SYSTEM_PROMPT + "\n\n" + user_text),
+                genai_types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg")
+            ])
+        ],
+        config=genai_types.GenerateContentConfig(
+            temperature=0.3,
+            max_output_tokens=2000,
+        )
+    )
+    return response.text
+
+
+async def analyze_single_image(image_base64: str, search_zone: Optional[str], provider: str) -> AIAnalysis:
+    """Analyze a single image with specified provider using direct API keys"""
+    model = "gpt-4o" if provider == "openai" else "gemini-2.0-flash"
+    
+    converted_image = convert_to_jpeg_base64(image_base64)
     zone_hint = f"SEARCH ZONE: '{search_zone}'. Focus on this region. " if search_zone else ""
+    user_text = f"{zone_hint}ANALYZE THIS IMAGE. Identify where the photographer is standing. Respond ONLY with valid JSON."
     
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"geo-{provider}-{uuid.uuid4()}",
-            system_message=system_prompt
-        ).with_model(provider_name, model)
+        if provider == "openai":
+            response_text = await analyze_with_openai(converted_image, user_text)
+        else:
+            response_text = await analyze_with_gemini(converted_image, user_text)
         
-        image_content = ImageContent(image_base64=converted_image)
-        user_message = UserMessage(
-            text=f"{zone_hint}ANALYZE THIS IMAGE. Identify where the photographer is standing. Respond ONLY with valid JSON.",
-            file_contents=[image_content]
-        )
-        
-        response = await chat.send_message(user_message)
-        
-        # Parse JSON response
-        clean_response = response.strip()
-        if "```json" in clean_response:
-            clean_response = clean_response.split("```json")[1].split("```")[0]
-        elif "```" in clean_response:
-            parts = clean_response.split("```")
-            if len(parts) >= 2:
-                clean_response = parts[1]
-        clean_response = clean_response.strip()
-        
-        data = json.loads(clean_response)
+        data = parse_ai_response(response_text)
         
         coords = data.get("coordinates")
         if coords and isinstance(coords, dict) and "lat" in coords and "lng" in coords:
@@ -1064,7 +1103,7 @@ async def create_share_link(request: ShareLocationRequest):
     await db.location_shares.insert_one(share_data)
     
     # Generate shareable link
-    base_url = os.environ.get("REACT_APP_BACKEND_URL", "https://5d859b9f-9bda-4ec3-ae57-f0bf5ee53237.preview.emergentagent.com")
+    base_url = os.environ.get("REACT_APP_BACKEND_URL", "https://hunter-geoloc.preview.emergentagent.com")
     share_link = f"{base_url}/share/{share_id}"
     
     return {

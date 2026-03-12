@@ -10,7 +10,7 @@ from PIL import Image
 import time
 
 class GeoHunterAPITester:
-    def __init__(self, base_url="https://visual-geo-mapper.preview.emergentagent.com"):
+    def __init__(self, base_url="https://hunter-geoloc.preview.emergentagent.com"):
         self.base_url = base_url
         self.api_url = f"{base_url}/api"
         self.tests_run = 0
