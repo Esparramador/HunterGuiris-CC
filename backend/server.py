@@ -31,6 +31,8 @@ db = client[os.environ['DB_NAME']]
 
 # API Keys
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
 
 # AUTHORIZED EMAIL - Only this user can access the app
@@ -343,9 +345,17 @@ async def analyze_single_image(image_base64: str, search_zone: Optional[str], pr
     # Convert image to JPEG for API compatibility
     converted_image = convert_to_jpeg_base64(image_base64)
     
+    # Use direct API keys if available, otherwise fallback to Emergent
+    if provider == "openai" and OPENAI_API_KEY:
+        api_key = OPENAI_API_KEY
+    elif provider == "gemini" and GEMINI_API_KEY:
+        api_key = GEMINI_API_KEY
+    else:
+        api_key = EMERGENT_LLM_KEY
+    
     try:
         chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
+            api_key=api_key,
             session_id=f"geo-{provider}-{uuid.uuid4()}",
             system_message="""You are an ELITE forensic geolocation analyst. Your mission is to identify WHERE THE PHOTOGRAPHER IS STANDING - not what they're looking at.
 
