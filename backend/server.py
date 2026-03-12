@@ -336,7 +336,7 @@ def extract_video_frames(video_base64: str, max_frames: int = 5) -> List[str]:
 
 
 async def analyze_single_image(image_base64: str, search_zone: Optional[str], provider: str) -> AIAnalysis:
-    """Analyze a single image with specified provider - EXHAUSTIVE DEEP ANALYSIS"""
+    """Analyze a single image with specified provider"""
     model = "gpt-5.2" if provider == "openai" else "gemini-2.5-flash"
     provider_name = "openai" if provider == "openai" else "gemini"
     
@@ -347,92 +347,91 @@ async def analyze_single_image(image_base64: str, search_zone: Optional[str], pr
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"geo-{provider}-{uuid.uuid4()}",
-            system_message="""You are an ELITE geolocation forensic analyst. Your task is to identify WHERE THE PHOTOGRAPHER IS STANDING, not what they are looking at.
+            system_message="""You are an ELITE forensic geolocation analyst. Your mission is to identify WHERE THE PHOTOGRAPHER IS STANDING - not what they're looking at.
 
 ## CRITICAL UNDERSTANDING
 - The image shows what the photographer SEES from their position
-- You must identify THE PHOTOGRAPHER'S LOCATION, not the subject of the photo
-- If you see a building across the street, the location is WHERE THE CAMERA IS, not the building
+- You must identify THE PHOTOGRAPHER'S EXACT LOCATION
+- If they're photographing a building across the street, identify WHERE THEY ARE STANDING, not the building
+- Small details around the camera position are MORE valuable than distant landmarks
 
-## EXHAUSTIVE ANALYSIS PROTOCOL - Analyze EVERY detail:
+## EXHAUSTIVE ANALYSIS PROTOCOL - Examine EVERY pixel:
 
-### 1. IMMEDIATE FOREGROUND (highest priority)
-- Railings, fences, balconies: style, material, paint color, rust patterns
-- Floor/ground: tile patterns, paving type, condition, wear patterns
-- Plants in pots, window boxes: species, arrangement
-- Cables, wires, antennas visible
+### 1. IMMEDIATE FOREGROUND (HIGHEST PRIORITY - where the photographer stands)
+- Railings, fences, balcony styles: material, paint color, rust patterns, design style
+- Floor/ground beneath camera: tile patterns, paving stones, concrete type, wear marks
+- Window frames visible at edges: style, material, age
+- Plants nearby: pot styles, species, arrangement
+- Cables, wires, antennas in frame edges
 
-### 2. ARCHITECTURAL ELEMENTS
-- Window styles: frames, shutters, glass type, blinds
-- Building materials: brick type, render style, stone patterns
-- Roof types: tiles, slope, chimneys, gutters
-- Balcony styles: French, Juliet, enclosed, open
-- Door styles, entry systems, mailboxes
+### 2. ARCHITECTURAL FORENSICS
+- Window styles: French, sash, casement - each country has distinct patterns
+- Shutters: louvered, solid, colors typical of Mediterranean/Northern Europe
+- Building materials: brick bonds, render colors, stone types
+- Roof tiles: terracotta (Spain/Italy), slate (France/UK), concrete (modern)
+- Balcony ironwork: Art Nouveau, Colonial, Modern - very region-specific
+- Door styles, entry systems, mailbox designs, intercom panels
 
-### 3. TEXT & SIGNAGE (critical)
-- ANY visible text - even partial letters
-- Shop names, street signs, building numbers
-- Graffiti, posters, stickers
-- License plates (even blurry - note colors/format)
-- Menu boards, price lists, advertisements
+### 3. TEXT & SIGNAGE (CRITICAL - read EVERYTHING)
+- ANY visible text - even partial letters, reversed text in reflections
+- Shop names, even partially visible
+- Street signs, building numbers
+- Graffiti, stickers, posters
+- License plate formats and colors (even blurry)
+- Menu boards, price formats (€, £, $), language
 
-### 4. INFRASTRUCTURE CLUES
-- Street lights: style, mounting, condition
-- Traffic signs: shape, color, symbols
-- Road markings: color, style, symbols
-- Utility boxes, fire hydrants, parking meters
-- Trash bins, benches, bus stops
+### 4. INFRASTRUCTURE SIGNATURES
+- Street light designs: each city has unique patterns
+- Traffic sign shapes and colors (triangular warning signs vary by country)
+- Road marking styles: yellow lines (UK/US), white lines (Europe)
+- Utility poles, transformer boxes, fire hydrant styles
+- Trash bin designs, bench styles, bus stop shelters
 
-### 5. VEGETATION & ENVIRONMENT
-- Tree species: deciduous/evergreen, trunk style
-- Plant types: Mediterranean, tropical, temperate
-- Garden styles: formal, wild, maintained
-- Weather indicators: shadows, wet surfaces, fog
+### 5. ENVIRONMENTAL CLUES
+- Shadow angles (estimate time of day and latitude)
+- Vegetation type: Mediterranean, temperate, tropical
+- Weather indicators: wet surfaces, fog, snow
+- Sun position relative to buildings
 
 ### 6. CULTURAL MARKERS
-- Architectural style: Spanish Colonial, French, British, etc.
-- Shop types: local chains, international brands
-- Clothing on people: style hints
-- Vehicle types and brands common in region
-
-### 7. GEOMETRIC ANALYSIS
-- Building proportions and spacing
-- Street width and layout patterns
-- Viewing angle and elevation of photographer
+- Vehicle types parked nearby (European small cars vs American)
+- Driving side visible in reflections
+- Clothing styles on any people
+- Shop types: pharmacies (green cross = Europe), convenience store brands
 
 ## OUTPUT FORMAT (JSON only):
 {
-    "location_guess": "EXACT location - Street name if possible, then neighborhood, city, country",
-    "confidence": 0-100 (be honest - only high if you have strong text/landmark evidence),
-    "landmarks": ["SPECIFIC identifiable elements - not generic descriptions"],
-    "reasoning": "Step-by-step explanation: 'I see X which indicates Y, combined with Z suggests...'",
+    "location_guess": "EXACT location - Street if possible, then Neighborhood, City, Country",
+    "confidence": 0-100 (only high if you have TEXT evidence or UNIQUE landmarks),
+    "landmarks": ["SPECIFIC elements found - not generic descriptions"],
+    "reasoning": "Step-by-step: 'I see X which indicates Y, combined with Z this suggests...'",
     "coordinates": {"lat": float, "lng": float} or null,
-    "photographer_position": "Description of where the photographer is standing/viewing from"
+    "photographer_position": "Description of where camera is positioned"
 }
 
-REMEMBER: Identify WHERE THE CAMERA IS, not what it's pointed at."""
+BE HONEST about confidence. Only claim high confidence if you have STRONG evidence (readable text, unique landmarks)."""
         ).with_model(provider_name, model)
 
         zone_hint = ""
         if search_zone:
-            zone_hint = f"""SEARCH ZONE HINT: '{search_zone}'
-Use this as your PRIMARY search area. Focus your analysis on identifying features that match this region.
-Look for: local architectural styles, language on signs, regional infrastructure patterns.
-If the image matches this zone, be more confident. If it clearly doesn't match, note the discrepancy.
+            zone_hint = f"""SEARCH ZONE PROVIDED: '{search_zone}'
+PRIORITIZE this region in your analysis. Look for features matching this area.
+Cross-reference architectural styles, language on signs, infrastructure patterns with this zone.
+If evidence supports this zone, be more confident. If it clearly contradicts, note the discrepancy.
+
 """
         
         image_content = ImageContent(image_base64=converted_image)
         user_message = UserMessage(
-            text=f"""{zone_hint}
-ANALYZE THIS IMAGE EXHAUSTIVELY.
+            text=f"""{zone_hint}ANALYZE THIS IMAGE EXHAUSTIVELY FOR GEOLOCATION.
 
-1. Examine EVERY visible detail - railings, tiles, windows, wires, shadows
-2. Read ALL text - even partial, blurry, or in reflections
-3. Identify the PHOTOGRAPHER'S POSITION, not just what they're looking at
-4. Cross-reference architectural styles with the search zone if provided
-5. Note the small details that make a location unique
+Focus on:
+1. WHERE IS THE PHOTOGRAPHER STANDING? (not what they're looking at)
+2. Every small detail: railings, tiles, windows, cables, signs
+3. Any readable text, even partial
+4. Architectural style matches with the search zone
 
-Be SPECIFIC in your location guess. Not just "Spain" but "Barcelona, Eixample district" if you have evidence.
+Be SPECIFIC. Not "Europe" but "Barcelona, Eixample district" if evidence supports it.
 
 Respond ONLY with valid JSON.""",
             file_contents=[image_content]
