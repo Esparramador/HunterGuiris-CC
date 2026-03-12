@@ -166,6 +166,7 @@ body {
 /* ==================== MAIN CONTENT ==================== */
 .main-content {
   display: flex;
+  flex-direction: column;
   flex: 1;
   overflow: hidden;
 }
@@ -173,34 +174,228 @@ body {
 .map-section {
   flex: 1;
   position: relative;
+  min-height: 40vh;
 }
 
 .side-panel {
-  width: 340px;
-  min-width: 340px;
   background: var(--bg-secondary);
-  border-left: 1px solid var(--border);
-  padding: 16px;
+  border-top: 1px solid var(--border);
+  padding: 20px;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  max-height: 55vh;
 }
 
-@media (max-width: 768px) {
-  .main-content {
-    flex-direction: column;
-  }
-  
+/* Cards dentro del panel */
+.upload-card,
+.search-zone-card {
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Upload Zone - Estilo bonito */
+.upload-zone {
+  border: 2px dashed var(--border-light);
+  border-radius: 12px;
+  padding: 30px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.upload-zone:hover {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 212, 255, 0.05);
+}
+
+.upload-icons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.upload-icons svg {
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+}
+
+.upload-icons .plus-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--accent-cyan);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.upload-icons .plus-icon svg {
+  width: 16px;
+  height: 16px;
+  color: var(--bg-primary);
+}
+
+.upload-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.upload-hint {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.upload-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 25px;
+  color: var(--success);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Search Zone Input */
+.search-input-wrapper {
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 16px 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 15px;
+  transition: border-color 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--accent-cyan);
+}
+
+/* Analyze Button */
+.btn-analyze {
+  width: 100%;
+  padding: 16px 24px;
+  background: linear-gradient(135deg, var(--accent-cyan), #00a8cc);
+  border: none;
+  border-radius: 12px;
+  color: var(--bg-primary);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.btn-analyze:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 212, 255, 0.4);
+}
+
+.btn-analyze:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* AI Badges Row */
+.ai-badges-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ai-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-badge.gpt { color: var(--accent-purple); }
+.ai-badge.gemini { color: var(--accent-cyan); }
+.ai-badge.maps { color: var(--success); }
+
+.ai-plus {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Mobile adjustments */
+@media (max-width: 600px) {
   .side-panel {
-    width: 100%;
-    max-height: 50vh;
-    border-left: none;
-    border-top: 1px solid var(--border);
+    padding: 16px;
+    max-height: 60vh;
   }
   
-  .map-section {
-    min-height: 40vh;
+  .upload-card,
+  .search-zone-card {
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  
+  .upload-zone {
+    padding: 20px 16px;
+  }
+  
+  .upload-text {
+    font-size: 16px;
+  }
+  
+  .btn-analyze {
+    padding: 14px 20px;
+    font-size: 14px;
   }
 }
 
