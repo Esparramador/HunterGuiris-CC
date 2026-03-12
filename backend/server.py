@@ -1,4 +1,5 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, APIRouter, UploadFile, File, Form, HTTPException, Request, Response, Depends
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -8,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import base64
 import asyncio
 import httpx
@@ -16,6 +17,9 @@ import cv2
 import numpy as np
 import tempfile
 from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+from PIL import Image
+import io
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -26,9 +30,11 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # API Keys
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 GOOGLE_MAPS_API_KEY = os.environ.get('GOOGLE_MAPS_API_KEY', '')
+
+# AUTHORIZED EMAIL - Only this user can access the app
+AUTHORIZED_EMAIL = "sadiagiljoan@gmail.com"
 
 # Create the main app
 app = FastAPI()
@@ -37,6 +43,199 @@ api_router = APIRouter(prefix="/api")
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+# ===================== AUTHENTICATION =====================
+
+class UserModel(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    created_at: datetime
+
+
+async def get_current_user(request: Request) -> Optional[UserModel]:
+    """Get current authenticated user from session token"""
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
+    
+    if not session_token:
+        return None
+    
+    # Find session in database
+    session_doc = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session_doc:
+        return None
+    
+    # Check if session expired
+    expires_at = session_doc.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        return None
+    
+    # Get user
+    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
+    if not user_doc:
+        return None
+    
+    return UserModel(**user_doc)
+
+
+async def require_auth(request: Request) -> UserModel:
+    """Require authentication - raises 401 if not authenticated"""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    return user
+
+
+@api_router.post("/auth/session")
+async def create_session(request: Request, response: Response):
+    """Exchange session_id from Emergent OAuth for session token"""
+    body = await request.json()
+    session_id = body.get("session_id")
+    
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id requerido")
+    
+    # Call Emergent Auth to get session data
+    async with httpx.AsyncClient() as client:
+        auth_response = await client.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": session_id}
+        )
+        
+        if auth_response.status_code != 200:
+            raise HTTPException(status_code=401, detail="Sesión inválida")
+        
+        auth_data = auth_response.json()
+    
+    email = auth_data.get("email")
+    name = auth_data.get("name")
+    picture = auth_data.get("picture")
+    session_token = auth_data.get("session_token")
+    
+    # CHECK AUTHORIZATION - Only allow specific email
+    if email.lower() != AUTHORIZED_EMAIL.lower():
+        logger.warning(f"Unauthorized access attempt from: {email}")
+        raise HTTPException(status_code=403, detail="Acceso denegado. Solo usuarios autorizados pueden acceder a esta aplicación.")
+    
+    # Find or create user
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    
+    if user_doc:
+        user_id = user_doc["user_id"]
+        # Update user info
+        await db.users.update_one(
+            {"email": email},
+            {"$set": {"name": name, "picture": picture}}
+        )
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one({
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
+            "created_at": datetime.now(timezone.utc)
+        })
+    
+    # Create session
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.insert_one({
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": expires_at,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    # Set httpOnly cookie
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=7 * 24 * 60 * 60,
+        path="/"
+    )
+    
+    return {
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "picture": picture
+    }
+
+
+@api_router.get("/auth/me")
+async def get_me(request: Request):
+    """Get current authenticated user"""
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": user.name,
+        "picture": user.picture
+    }
+
+
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response):
+    """Logout user"""
+    session_token = request.cookies.get("session_token")
+    if session_token:
+        await db.user_sessions.delete_one({"session_token": session_token})
+    
+    response.delete_cookie(key="session_token", path="/")
+    return {"message": "Sesión cerrada"}
+
+
+def convert_to_jpeg_base64(image_base64: str) -> str:
+    """Convert any image to JPEG format for API compatibility"""
+    try:
+        # Decode base64
+        image_data = base64.b64decode(image_base64)
+        
+        # Open with PIL
+        img = Image.open(io.BytesIO(image_data))
+        
+        # Convert to RGB if necessary (handles PNG with transparency, etc.)
+        if img.mode in ('RGBA', 'P', 'LA'):
+            # Create white background
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+            img = background
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Resize if too large (max 2048px on longest side)
+        max_size = 2048
+        if max(img.size) > max_size:
+            ratio = max_size / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+        
+        # Save to JPEG
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=90)
+        buffer.seek(0)
+        
+        return base64.b64encode(buffer.read()).decode('utf-8')
+    except Exception as e:
+        logger.error(f"Image conversion error: {str(e)}")
+        return image_base64  # Return original if conversion fails
 
 
 # Models
@@ -62,6 +261,37 @@ class SearchRequest(BaseModel):
 
 class GeocodeRequest(BaseModel):
     location: str
+
+
+class PhoneLookupRequest(BaseModel):
+    phone_number: str
+    country_code: Optional[str] = None
+
+
+class ShareLocationRequest(BaseModel):
+    target_phone: str
+    requester_name: str
+    message: Optional[str] = None
+
+
+class IPGeolocationRequest(BaseModel):
+    ip_address: str
+
+
+class HistoryFilterRequest(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    min_confidence: Optional[int] = None
+    location_contains: Optional[str] = None
+    limit: Optional[int] = 100
+
+
+class AlternativeLocation(BaseModel):
+    location: str
+    confidence: int
+    coordinates: Optional[dict] = None
+    source: str  # "gpt", "gemini", "consensus"
+    reasoning: str
 
 
 # Video frame extraction
@@ -106,72 +336,161 @@ def extract_video_frames(video_base64: str, max_frames: int = 5) -> List[str]:
 
 
 async def analyze_single_image(image_base64: str, search_zone: Optional[str], provider: str) -> AIAnalysis:
-    """Analyze a single image with specified provider"""
+    """Analyze a single image with specified provider - EXHAUSTIVE DEEP ANALYSIS"""
+    model = "gpt-5.2" if provider == "openai" else "gemini-2.5-flash"
+    provider_name = "openai" if provider == "openai" else "gemini"
+    
+    # Convert image to JPEG for API compatibility
+    converted_image = convert_to_jpeg_base64(image_base64)
+    
     try:
-        if provider == "openai":
-            api_key = OPENAI_API_KEY
-            model = "gpt-5.2"
-            model_name = ("openai", "gpt-5.2")
-        else:
-            api_key = GEMINI_API_KEY
-            model = "gemini-2.5-flash"
-            model_name = ("gemini", "gemini-2.5-flash")
-        
         chat = LlmChat(
-            api_key=api_key,
+            api_key=EMERGENT_LLM_KEY,
             session_id=f"geo-{provider}-{uuid.uuid4()}",
-            system_message="""You are an expert geolocation analyst. Analyze images to identify locations based on:
-- Architecture, building styles, materials
-- Signs, text, language, scripts
-- Vegetation, landscape, terrain
-- Infrastructure, roads, vehicles, traffic signs
-- Weather, lighting, shadows
-- Cultural indicators, clothing, advertisements
-- Street furniture, utilities, mailboxes
+            system_message="""You are an ELITE geolocation forensic analyst. Your task is to identify WHERE THE PHOTOGRAPHER IS STANDING, not what they are looking at.
 
-CRITICAL: Be as specific as possible. Look for ANY text, signs, or unique landmarks.
-Respond ONLY in valid JSON:
+## CRITICAL UNDERSTANDING
+- The image shows what the photographer SEES from their position
+- You must identify THE PHOTOGRAPHER'S LOCATION, not the subject of the photo
+- If you see a building across the street, the location is WHERE THE CAMERA IS, not the building
+
+## EXHAUSTIVE ANALYSIS PROTOCOL - Analyze EVERY detail:
+
+### 1. IMMEDIATE FOREGROUND (highest priority)
+- Railings, fences, balconies: style, material, paint color, rust patterns
+- Floor/ground: tile patterns, paving type, condition, wear patterns
+- Plants in pots, window boxes: species, arrangement
+- Cables, wires, antennas visible
+
+### 2. ARCHITECTURAL ELEMENTS
+- Window styles: frames, shutters, glass type, blinds
+- Building materials: brick type, render style, stone patterns
+- Roof types: tiles, slope, chimneys, gutters
+- Balcony styles: French, Juliet, enclosed, open
+- Door styles, entry systems, mailboxes
+
+### 3. TEXT & SIGNAGE (critical)
+- ANY visible text - even partial letters
+- Shop names, street signs, building numbers
+- Graffiti, posters, stickers
+- License plates (even blurry - note colors/format)
+- Menu boards, price lists, advertisements
+
+### 4. INFRASTRUCTURE CLUES
+- Street lights: style, mounting, condition
+- Traffic signs: shape, color, symbols
+- Road markings: color, style, symbols
+- Utility boxes, fire hydrants, parking meters
+- Trash bins, benches, bus stops
+
+### 5. VEGETATION & ENVIRONMENT
+- Tree species: deciduous/evergreen, trunk style
+- Plant types: Mediterranean, tropical, temperate
+- Garden styles: formal, wild, maintained
+- Weather indicators: shadows, wet surfaces, fog
+
+### 6. CULTURAL MARKERS
+- Architectural style: Spanish Colonial, French, British, etc.
+- Shop types: local chains, international brands
+- Clothing on people: style hints
+- Vehicle types and brands common in region
+
+### 7. GEOMETRIC ANALYSIS
+- Building proportions and spacing
+- Street width and layout patterns
+- Viewing angle and elevation of photographer
+
+## OUTPUT FORMAT (JSON only):
 {
-    "location_guess": "Specific location (Street/Neighborhood, City, Country)",
-    "confidence": 0-100,
-    "landmarks": ["specific identifiable elements"],
-    "reasoning": "detailed analysis of visual clues",
-    "coordinates": {"lat": 0.0, "lng": 0.0} or null
-}"""
-        ).with_model(*model_name)
+    "location_guess": "EXACT location - Street name if possible, then neighborhood, city, country",
+    "confidence": 0-100 (be honest - only high if you have strong text/landmark evidence),
+    "landmarks": ["SPECIFIC identifiable elements - not generic descriptions"],
+    "reasoning": "Step-by-step explanation: 'I see X which indicates Y, combined with Z suggests...'",
+    "coordinates": {"lat": float, "lng": float} or null,
+    "photographer_position": "Description of where the photographer is standing/viewing from"
+}
 
-        zone_hint = f"SEARCH ZONE: {search_zone}. Focus analysis on this region. " if search_zone else ""
+REMEMBER: Identify WHERE THE CAMERA IS, not what it's pointed at."""
+        ).with_model(provider_name, model)
+
+        zone_hint = ""
+        if search_zone:
+            zone_hint = f"""SEARCH ZONE HINT: '{search_zone}'
+Use this as your PRIMARY search area. Focus your analysis on identifying features that match this region.
+Look for: local architectural styles, language on signs, regional infrastructure patterns.
+If the image matches this zone, be more confident. If it clearly doesn't match, note the discrepancy.
+"""
         
-        image_content = ImageContent(image_base64=image_base64)
+        image_content = ImageContent(image_base64=converted_image)
         user_message = UserMessage(
-            text=f"{zone_hint}Analyze this image for geolocation. Be specific. Respond ONLY with valid JSON.",
+            text=f"""{zone_hint}
+ANALYZE THIS IMAGE EXHAUSTIVELY.
+
+1. Examine EVERY visible detail - railings, tiles, windows, wires, shadows
+2. Read ALL text - even partial, blurry, or in reflections
+3. Identify the PHOTOGRAPHER'S POSITION, not just what they're looking at
+4. Cross-reference architectural styles with the search zone if provided
+5. Note the small details that make a location unique
+
+Be SPECIFIC in your location guess. Not just "Spain" but "Barcelona, Eixample district" if you have evidence.
+
+Respond ONLY with valid JSON.""",
             file_contents=[image_content]
         )
 
         response = await chat.send_message(user_message)
         
-        import json
         clean_response = response.strip()
-        if clean_response.startswith("```"):
-            clean_response = clean_response.split("```")[1]
-            if clean_response.startswith("json"):
-                clean_response = clean_response[4:]
+        
+        # Clean markdown code blocks if present
+        if "```json" in clean_response:
+            clean_response = clean_response.split("```json")[1].split("```")[0]
+        elif "```" in clean_response:
+            parts = clean_response.split("```")
+            if len(parts) >= 2:
+                clean_response = parts[1]
+        
         clean_response = clean_response.strip()
         
         data = json.loads(clean_response)
+        
+        # Validate coordinates if present
+        coords = data.get("coordinates")
+        if coords and isinstance(coords, dict):
+            if "lat" in coords and "lng" in coords:
+                try:
+                    coords = {"lat": float(coords["lat"]), "lng": float(coords["lng"])}
+                except:
+                    coords = None
+            else:
+                coords = None
+        else:
+            coords = None
+            
         return AIAnalysis(
             model=model,
             provider="OpenAI" if provider == "openai" else "Google",
             location_guess=data.get("location_guess", "Unknown"),
-            confidence=data.get("confidence", 0),
-            landmarks=data.get("landmarks", []),
+            confidence=min(100, max(0, int(data.get("confidence", 0)))),
+            landmarks=data.get("landmarks", [])[:10],
             reasoning=data.get("reasoning", ""),
-            coordinates=data.get("coordinates")
+            coordinates=coords
+        )
+    except json.JSONDecodeError as e:
+        logger.error(f"{provider} JSON parse error: {str(e)}, response: {response[:500] if 'response' in locals() else 'N/A'}")
+        return AIAnalysis(
+            model=model,
+            provider="OpenAI" if provider == "openai" else "Google",
+            location_guess="Parse Error",
+            confidence=0,
+            landmarks=[],
+            reasoning=f"Failed to parse AI response: {str(e)}",
+            coordinates=None
         )
     except Exception as e:
         logger.error(f"{provider} analysis error: {str(e)}")
         return AIAnalysis(
-            model=model if 'model' in locals() else "unknown",
+            model=model,
             provider="OpenAI" if provider == "openai" else "Google",
             location_guess="Error",
             confidence=0,
@@ -430,6 +749,15 @@ async def analyze_multiple(request: MultiAnalysisRequest):
         "status": "completed"
     }
     
+    # Add alternative locations when there's uncertainty
+    if result["consensus_confidence"] < 80:
+        gpt_analysis = result["gpt_results"][0] if result["gpt_results"] else {}
+        gemini_analysis = result["gemini_results"][0] if result["gemini_results"] else {}
+        alternatives = await get_alternative_locations(gpt_analysis, gemini_analysis, request.search_zone)
+        final_result["alternative_locations"] = alternatives
+    else:
+        final_result["alternative_locations"] = []
+    
     await db.analysis_history.insert_one({**final_result, "_id": final_result["id"]})
     
     return final_result
@@ -499,6 +827,367 @@ async def delete_history_item(analysis_id: str):
 async def get_maps_key():
     """Get Google Maps API key"""
     return {"key": GOOGLE_MAPS_API_KEY}
+
+
+# ===================== REPOSITORIO DE BÚSQUEDAS =====================
+
+@api_router.post("/history/search")
+async def search_history(filters: HistoryFilterRequest):
+    """Search history with advanced filters"""
+    query = {}
+    
+    if filters.start_date:
+        query["timestamp"] = {"$gte": filters.start_date}
+    if filters.end_date:
+        if "timestamp" in query:
+            query["timestamp"]["$lte"] = filters.end_date
+        else:
+            query["timestamp"] = {"$lte": filters.end_date}
+    if filters.min_confidence:
+        query["consensus_confidence"] = {"$gte": filters.min_confidence}
+    if filters.location_contains:
+        query["consensus_location"] = {"$regex": filters.location_contains, "$options": "i"}
+    
+    history = await db.analysis_history.find(query, {"_id": 0}).sort("timestamp", -1).to_list(filters.limit or 100)
+    
+    # Calculate statistics
+    total_searches = len(history)
+    avg_confidence = sum(h.get("consensus_confidence", 0) for h in history) / max(1, total_searches)
+    successful = sum(1 for h in history if h.get("consensus_confidence", 0) > 50)
+    
+    return {
+        "results": history,
+        "statistics": {
+            "total_searches": total_searches,
+            "average_confidence": round(avg_confidence, 1),
+            "successful_identifications": successful,
+            "success_rate": round(successful / max(1, total_searches) * 100, 1)
+        }
+    }
+
+
+@api_router.get("/history/{analysis_id}")
+async def get_history_detail(analysis_id: str):
+    """Get detailed history item with all data"""
+    item = await db.analysis_history.find_one({"id": analysis_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+
+@api_router.get("/history/export/json")
+async def export_history_json():
+    """Export all history as JSON"""
+    history = await db.analysis_history.find({}, {"_id": 0}).sort("timestamp", -1).to_list(1000)
+    return {"data": history, "exported_at": datetime.now(timezone.utc).isoformat(), "total": len(history)}
+
+
+@api_router.get("/statistics")
+async def get_statistics():
+    """Get overall statistics"""
+    total = await db.analysis_history.count_documents({})
+    high_conf = await db.analysis_history.count_documents({"consensus_confidence": {"$gte": 70}})
+    medium_conf = await db.analysis_history.count_documents({"consensus_confidence": {"$gte": 40, "$lt": 70}})
+    low_conf = await db.analysis_history.count_documents({"consensus_confidence": {"$lt": 40}})
+    
+    # Get most common locations
+    pipeline = [
+        {"$group": {"_id": "$consensus_location", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    common_locations = await db.analysis_history.aggregate(pipeline).to_list(10)
+    
+    return {
+        "total_searches": total,
+        "high_confidence": high_conf,
+        "medium_confidence": medium_conf,
+        "low_confidence": low_conf,
+        "success_rate": round(high_conf / max(1, total) * 100, 1),
+        "common_locations": [{"location": l["_id"], "count": l["count"]} for l in common_locations if l["_id"]]
+    }
+
+
+# ===================== UBICACIONES ALTERNATIVAS =====================
+
+async def get_alternative_locations(gpt_analysis, gemini_analysis, search_zone: Optional[str]) -> List[dict]:
+    """Generate alternative location suggestions when there's uncertainty"""
+    alternatives = []
+    
+    # Helper function to get attribute from dict or object
+    def get_attr(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+    
+    # Add GPT suggestion if valid
+    gpt_location = get_attr(gpt_analysis, 'location_guess', '')
+    if gpt_location and gpt_location not in ["Unknown", "Error", "Parse Error", "Unknown Location", ""]:
+        gpt_reasoning = get_attr(gpt_analysis, 'reasoning', '') or ''
+        gpt_landmarks = get_attr(gpt_analysis, 'landmarks', []) or []
+        alternatives.append({
+            "location": gpt_location,
+            "confidence": get_attr(gpt_analysis, 'confidence', 0),
+            "coordinates": get_attr(gpt_analysis, 'coordinates'),
+            "source": "GPT-5.2",
+            "reasoning": gpt_reasoning[:300] if gpt_reasoning else "",
+            "landmarks": gpt_landmarks[:5] if gpt_landmarks else []
+        })
+    
+    # Add Gemini suggestion if valid and different
+    gemini_location = get_attr(gemini_analysis, 'location_guess', '')
+    if gemini_location and gemini_location not in ["Unknown", "Error", "Parse Error", "Unknown Location", ""]:
+        if not alternatives or gemini_location.lower() != alternatives[0]["location"].lower():
+            gemini_reasoning = get_attr(gemini_analysis, 'reasoning', '') or ''
+            gemini_landmarks = get_attr(gemini_analysis, 'landmarks', []) or []
+            alternatives.append({
+                "location": gemini_location,
+                "confidence": get_attr(gemini_analysis, 'confidence', 0),
+                "coordinates": get_attr(gemini_analysis, 'coordinates'),
+                "source": "Gemini",
+                "reasoning": gemini_reasoning[:300] if gemini_reasoning else "",
+                "landmarks": gemini_landmarks[:5] if gemini_landmarks else []
+            })
+    
+    # If search zone provided, try to find additional alternatives
+    if search_zone and len(alternatives) < 3:
+        try:
+            geocode_result = await geocode_location(search_zone)
+            if geocode_result:
+                alternatives.append({
+                    "location": geocode_result.get("formatted_address", search_zone),
+                    "confidence": 30,
+                    "coordinates": geocode_result.get("coordinates"),
+                    "source": "Zona de búsqueda sugerida",
+                    "reasoning": f"Ubicación basada en la zona de búsqueda proporcionada: {search_zone}",
+                    "landmarks": []
+                })
+        except:
+            pass
+    
+    # Sort by confidence
+    alternatives.sort(key=lambda x: x["confidence"], reverse=True)
+    
+    return alternatives[:5]  # Return top 5 alternatives
+
+
+# ===================== GEOLOCALIZACIÓN POR IP =====================
+
+@api_router.post("/geolocate/ip")
+async def geolocate_by_ip(request: IPGeolocationRequest):
+    """Geolocate an IP address - useful for approximate location"""
+    try:
+        async with httpx.AsyncClient() as client:
+            # Use ip-api.com (free, no key required)
+            response = await client.get(f"http://ip-api.com/json/{request.ip_address}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query")
+            data = response.json()
+            
+            if data.get("status") == "success":
+                return {
+                    "success": True,
+                    "ip": data.get("query"),
+                    "location": {
+                        "country": data.get("country"),
+                        "country_code": data.get("countryCode"),
+                        "region": data.get("regionName"),
+                        "city": data.get("city"),
+                        "postal_code": data.get("zip"),
+                        "coordinates": {
+                            "lat": data.get("lat"),
+                            "lng": data.get("lon")
+                        },
+                        "timezone": data.get("timezone")
+                    },
+                    "provider": {
+                        "isp": data.get("isp"),
+                        "organization": data.get("org"),
+                        "as": data.get("as")
+                    },
+                    "accuracy": "city-level (approximate)"
+                }
+            else:
+                return {"success": False, "error": data.get("message", "IP not found")}
+    except Exception as e:
+        logger.error(f"IP geolocation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===================== VALIDACIÓN DE NÚMEROS DE TELÉFONO =====================
+
+@api_router.post("/phone/lookup")
+async def phone_lookup(request: PhoneLookupRequest):
+    """Lookup phone number information - country, carrier, type"""
+    try:
+        phone = request.phone_number.replace(" ", "").replace("-", "")
+        
+        # Basic validation and info extraction
+        info = {
+            "number": phone,
+            "valid_format": len(phone) >= 8 and phone.replace("+", "").isdigit(),
+            "type": "unknown",
+            "country": None,
+            "carrier": None
+        }
+        
+        # Detect country by prefix
+        country_prefixes = {
+            "+1": {"country": "Estados Unidos/Canadá", "code": "US/CA"},
+            "+34": {"country": "España", "code": "ES"},
+            "+44": {"country": "Reino Unido", "code": "GB"},
+            "+33": {"country": "Francia", "code": "FR"},
+            "+49": {"country": "Alemania", "code": "DE"},
+            "+39": {"country": "Italia", "code": "IT"},
+            "+52": {"country": "México", "code": "MX"},
+            "+54": {"country": "Argentina", "code": "AR"},
+            "+55": {"country": "Brasil", "code": "BR"},
+            "+56": {"country": "Chile", "code": "CL"},
+            "+57": {"country": "Colombia", "code": "CO"},
+            "+58": {"country": "Venezuela", "code": "VE"},
+            "+51": {"country": "Perú", "code": "PE"},
+            "+593": {"country": "Ecuador", "code": "EC"},
+            "+86": {"country": "China", "code": "CN"},
+            "+81": {"country": "Japón", "code": "JP"},
+            "+82": {"country": "Corea del Sur", "code": "KR"},
+            "+91": {"country": "India", "code": "IN"},
+            "+7": {"country": "Rusia", "code": "RU"},
+            "+380": {"country": "Ucrania", "code": "UA"},
+            "+48": {"country": "Polonia", "code": "PL"},
+            "+351": {"country": "Portugal", "code": "PT"},
+            "+31": {"country": "Países Bajos", "code": "NL"},
+            "+32": {"country": "Bélgica", "code": "BE"},
+            "+41": {"country": "Suiza", "code": "CH"},
+            "+43": {"country": "Austria", "code": "AT"},
+            "+46": {"country": "Suecia", "code": "SE"},
+            "+47": {"country": "Noruega", "code": "NO"},
+            "+45": {"country": "Dinamarca", "code": "DK"},
+            "+358": {"country": "Finlandia", "code": "FI"},
+            "+353": {"country": "Irlanda", "code": "IE"},
+            "+30": {"country": "Grecia", "code": "GR"},
+            "+90": {"country": "Turquía", "code": "TR"},
+            "+972": {"country": "Israel", "code": "IL"},
+            "+971": {"country": "Emiratos Árabes", "code": "AE"},
+            "+966": {"country": "Arabia Saudita", "code": "SA"},
+            "+20": {"country": "Egipto", "code": "EG"},
+            "+27": {"country": "Sudáfrica", "code": "ZA"},
+            "+61": {"country": "Australia", "code": "AU"},
+            "+64": {"country": "Nueva Zelanda", "code": "NZ"},
+            "+65": {"country": "Singapur", "code": "SG"},
+            "+66": {"country": "Tailandia", "code": "TH"},
+            "+84": {"country": "Vietnam", "code": "VN"},
+            "+62": {"country": "Indonesia", "code": "ID"},
+            "+63": {"country": "Filipinas", "code": "PH"},
+            "+60": {"country": "Malasia", "code": "MY"},
+        }
+        
+        for prefix, country_info in sorted(country_prefixes.items(), key=lambda x: len(x[0]), reverse=True):
+            if phone.startswith(prefix):
+                info["country"] = country_info["country"]
+                info["country_code"] = country_info["code"]
+                break
+        
+        # Detect mobile vs landline (basic heuristic)
+        if info["country_code"] == "ES":
+            if phone.startswith("+346") or phone.startswith("+347"):
+                info["type"] = "móvil"
+            elif phone.startswith("+349"):
+                info["type"] = "fijo"
+        elif info["country_code"] == "US/CA":
+            info["type"] = "móvil/fijo"  # US doesn't separate mobile prefixes
+        
+        return {
+            "success": True,
+            "phone_info": info,
+            "note": "Para rastreo de ubicación en tiempo real se requiere autorización judicial y cooperación del operador"
+        }
+    except Exception as e:
+        logger.error(f"Phone lookup error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===================== COMPARTIR UBICACIÓN VOLUNTARIA =====================
+
+@api_router.post("/location/share/create")
+async def create_share_link(request: ShareLocationRequest):
+    """Create a location sharing request link"""
+    from datetime import timedelta
+    share_id = str(uuid.uuid4())[:8]
+    
+    share_data = {
+        "id": share_id,
+        "target_phone": request.target_phone,
+        "requester_name": request.requester_name,
+        "message": request.message or f"{request.requester_name} solicita que compartas tu ubicación",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+        "status": "pending",
+        "location": None
+    }
+    
+    await db.location_shares.insert_one(share_data)
+    
+    # Generate shareable link
+    base_url = os.environ.get("REACT_APP_BACKEND_URL", "https://5d859b9f-9bda-4ec3-ae57-f0bf5ee53237.preview.emergentagent.com")
+    share_link = f"{base_url}/share/{share_id}"
+    
+    return {
+        "success": True,
+        "share_id": share_id,
+        "share_link": share_link,
+        "message": f"Envía este enlace a {request.target_phone}. Cuando la persona lo abra y acepte, podrás ver su ubicación.",
+        "sms_template": f"{request.requester_name} te solicita compartir tu ubicación: {share_link}"
+    }
+
+
+@api_router.get("/location/share/{share_id}")
+async def get_share_status(share_id: str):
+    """Get the status of a location share request"""
+    share = await db.location_shares.find_one({"id": share_id}, {"_id": 0})
+    if not share:
+        raise HTTPException(status_code=404, detail="Share request not found")
+    return share
+
+
+@api_router.post("/location/share/{share_id}/accept")
+async def accept_share_location(share_id: str, lat: float, lng: float):
+    """Accept a location share request and provide location"""
+    share = await db.location_shares.find_one({"id": share_id})
+    if not share:
+        raise HTTPException(status_code=404, detail="Share request not found")
+    
+    # Reverse geocode the location
+    location_name = "Ubicación compartida"
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://maps.googleapis.com/maps/api/geocode/json",
+                params={"latlng": f"{lat},{lng}", "key": GOOGLE_MAPS_API_KEY}
+            )
+            data = response.json()
+            if data.get("results"):
+                location_name = data["results"][0].get("formatted_address", location_name)
+    except:
+        pass
+    
+    await db.location_shares.update_one(
+        {"id": share_id},
+        {"$set": {
+            "status": "accepted",
+            "location": {
+                "coordinates": {"lat": lat, "lng": lng},
+                "address": location_name,
+                "shared_at": datetime.now(timezone.utc).isoformat()
+            }
+        }}
+    )
+    
+    return {"success": True, "message": "Ubicación compartida exitosamente"}
+
+
+@api_router.get("/location/shares")
+async def get_all_shares():
+    """Get all location share requests"""
+    shares = await db.location_shares.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return shares
 
 
 # Include router
