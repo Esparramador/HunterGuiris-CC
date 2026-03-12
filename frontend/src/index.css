@@ -176,17 +176,18 @@ body {
 }
 
 .side-panel {
-  width: 380px;
+  width: 340px;
+  min-width: 340px;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
-  padding: 20px;
+  padding: 16px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 768px) {
   .main-content {
     flex-direction: column;
   }
