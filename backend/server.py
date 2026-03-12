@@ -16,10 +16,10 @@ import httpx
 import cv2
 import numpy as np
 import tempfile
-from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 from PIL import Image
 import io
 import json
+from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -338,140 +338,68 @@ def extract_video_frames(video_base64: str, max_frames: int = 5) -> List[str]:
 
 
 async def analyze_single_image(image_base64: str, search_zone: Optional[str], provider: str) -> AIAnalysis:
-    """Analyze a single image with specified provider"""
-    model = "gpt-5.2" if provider == "openai" else "gemini-2.5-flash"
+    """Analyze a single image with specified provider using Emergent LLM"""
+    model = "gpt-4o" if provider == "openai" else "gemini-2.0-flash"
     provider_name = "openai" if provider == "openai" else "gemini"
     
     # Convert image to JPEG for API compatibility
     converted_image = convert_to_jpeg_base64(image_base64)
     
-    # Use direct API keys if available, otherwise fallback to Emergent
-    if provider == "openai" and OPENAI_API_KEY:
-        api_key = OPENAI_API_KEY
-    elif provider == "gemini" and GEMINI_API_KEY:
-        api_key = GEMINI_API_KEY
-    else:
-        api_key = EMERGENT_LLM_KEY
+    system_prompt = """You are an ELITE forensic geolocation analyst. Your mission is to identify WHERE THE PHOTOGRAPHER IS STANDING - not what they're looking at.
+
+## CRITICAL: Identify THE PHOTOGRAPHER'S LOCATION, not what they're photographing.
+
+## EXHAUSTIVE ANALYSIS - Examine EVERY detail:
+1. FOREGROUND: Railings, fences, floor tiles, window frames, plants, cables
+2. ARCHITECTURE: Window styles, shutters, building materials, roof tiles, balconies
+3. TEXT & SIGNS: Any visible text, shop names, street signs, license plates
+4. INFRASTRUCTURE: Street lights, traffic signs, road markings, utilities
+5. ENVIRONMENT: Vegetation, weather, shadows
+6. CULTURAL: Vehicle types, clothing, shop types
+
+## OUTPUT (JSON only):
+{
+    "location_guess": "Street, Neighborhood, City, Country",
+    "confidence": 0-100,
+    "landmarks": ["specific elements"],
+    "reasoning": "step-by-step analysis",
+    "coordinates": {"lat": float, "lng": float} or null
+}"""
+
+    zone_hint = f"SEARCH ZONE: '{search_zone}'. Focus on this region. " if search_zone else ""
     
     try:
         chat = LlmChat(
-            api_key=api_key,
+            api_key=EMERGENT_LLM_KEY,
             session_id=f"geo-{provider}-{uuid.uuid4()}",
-            system_message="""You are an ELITE forensic geolocation analyst. Your mission is to identify WHERE THE PHOTOGRAPHER IS STANDING - not what they're looking at.
-
-## CRITICAL UNDERSTANDING
-- The image shows what the photographer SEES from their position
-- You must identify THE PHOTOGRAPHER'S EXACT LOCATION
-- If they're photographing a building across the street, identify WHERE THEY ARE STANDING, not the building
-- Small details around the camera position are MORE valuable than distant landmarks
-
-## EXHAUSTIVE ANALYSIS PROTOCOL - Examine EVERY pixel:
-
-### 1. IMMEDIATE FOREGROUND (HIGHEST PRIORITY - where the photographer stands)
-- Railings, fences, balcony styles: material, paint color, rust patterns, design style
-- Floor/ground beneath camera: tile patterns, paving stones, concrete type, wear marks
-- Window frames visible at edges: style, material, age
-- Plants nearby: pot styles, species, arrangement
-- Cables, wires, antennas in frame edges
-
-### 2. ARCHITECTURAL FORENSICS
-- Window styles: French, sash, casement - each country has distinct patterns
-- Shutters: louvered, solid, colors typical of Mediterranean/Northern Europe
-- Building materials: brick bonds, render colors, stone types
-- Roof tiles: terracotta (Spain/Italy), slate (France/UK), concrete (modern)
-- Balcony ironwork: Art Nouveau, Colonial, Modern - very region-specific
-- Door styles, entry systems, mailbox designs, intercom panels
-
-### 3. TEXT & SIGNAGE (CRITICAL - read EVERYTHING)
-- ANY visible text - even partial letters, reversed text in reflections
-- Shop names, even partially visible
-- Street signs, building numbers
-- Graffiti, stickers, posters
-- License plate formats and colors (even blurry)
-- Menu boards, price formats (€, £, $), language
-
-### 4. INFRASTRUCTURE SIGNATURES
-- Street light designs: each city has unique patterns
-- Traffic sign shapes and colors (triangular warning signs vary by country)
-- Road marking styles: yellow lines (UK/US), white lines (Europe)
-- Utility poles, transformer boxes, fire hydrant styles
-- Trash bin designs, bench styles, bus stop shelters
-
-### 5. ENVIRONMENTAL CLUES
-- Shadow angles (estimate time of day and latitude)
-- Vegetation type: Mediterranean, temperate, tropical
-- Weather indicators: wet surfaces, fog, snow
-- Sun position relative to buildings
-
-### 6. CULTURAL MARKERS
-- Vehicle types parked nearby (European small cars vs American)
-- Driving side visible in reflections
-- Clothing styles on any people
-- Shop types: pharmacies (green cross = Europe), convenience store brands
-
-## OUTPUT FORMAT (JSON only):
-{
-    "location_guess": "EXACT location - Street if possible, then Neighborhood, City, Country",
-    "confidence": 0-100 (only high if you have TEXT evidence or UNIQUE landmarks),
-    "landmarks": ["SPECIFIC elements found - not generic descriptions"],
-    "reasoning": "Step-by-step: 'I see X which indicates Y, combined with Z this suggests...'",
-    "coordinates": {"lat": float, "lng": float} or null,
-    "photographer_position": "Description of where camera is positioned"
-}
-
-BE HONEST about confidence. Only claim high confidence if you have STRONG evidence (readable text, unique landmarks)."""
+            system_message=system_prompt
         ).with_model(provider_name, model)
-
-        zone_hint = ""
-        if search_zone:
-            zone_hint = f"""SEARCH ZONE PROVIDED: '{search_zone}'
-PRIORITIZE this region in your analysis. Look for features matching this area.
-Cross-reference architectural styles, language on signs, infrastructure patterns with this zone.
-If evidence supports this zone, be more confident. If it clearly contradicts, note the discrepancy.
-
-"""
         
         image_content = ImageContent(image_base64=converted_image)
         user_message = UserMessage(
-            text=f"""{zone_hint}ANALYZE THIS IMAGE EXHAUSTIVELY FOR GEOLOCATION.
-
-Focus on:
-1. WHERE IS THE PHOTOGRAPHER STANDING? (not what they're looking at)
-2. Every small detail: railings, tiles, windows, cables, signs
-3. Any readable text, even partial
-4. Architectural style matches with the search zone
-
-Be SPECIFIC. Not "Europe" but "Barcelona, Eixample district" if evidence supports it.
-
-Respond ONLY with valid JSON.""",
+            text=f"{zone_hint}ANALYZE THIS IMAGE. Identify where the photographer is standing. Respond ONLY with valid JSON.",
             file_contents=[image_content]
         )
-
+        
         response = await chat.send_message(user_message)
         
+        # Parse JSON response
         clean_response = response.strip()
-        
-        # Clean markdown code blocks if present
         if "```json" in clean_response:
             clean_response = clean_response.split("```json")[1].split("```")[0]
         elif "```" in clean_response:
             parts = clean_response.split("```")
             if len(parts) >= 2:
                 clean_response = parts[1]
-        
         clean_response = clean_response.strip()
         
         data = json.loads(clean_response)
         
-        # Validate coordinates if present
         coords = data.get("coordinates")
-        if coords and isinstance(coords, dict):
-            if "lat" in coords and "lng" in coords:
-                try:
-                    coords = {"lat": float(coords["lat"]), "lng": float(coords["lng"])}
-                except:
-                    coords = None
-            else:
+        if coords and isinstance(coords, dict) and "lat" in coords and "lng" in coords:
+            try:
+                coords = {"lat": float(coords["lat"]), "lng": float(coords["lng"])}
+            except:
                 coords = None
         else:
             coords = None
@@ -485,15 +413,16 @@ Respond ONLY with valid JSON.""",
             reasoning=data.get("reasoning", ""),
             coordinates=coords
         )
+        
     except json.JSONDecodeError as e:
-        logger.error(f"{provider} JSON parse error: {str(e)}, response: {response[:500] if 'response' in locals() else 'N/A'}")
+        logger.error(f"{provider} JSON parse error: {str(e)}")
         return AIAnalysis(
             model=model,
             provider="OpenAI" if provider == "openai" else "Google",
             location_guess="Parse Error",
             confidence=0,
             landmarks=[],
-            reasoning=f"Failed to parse AI response: {str(e)}",
+            reasoning=f"Failed to parse response",
             coordinates=None
         )
     except Exception as e:
